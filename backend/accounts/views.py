@@ -2,7 +2,7 @@ from django.shortcuts import render
 from rest_framework import generics
 from rest_framework.permissions import AllowAny
 from accounts.models import User
-from accounts.serializers import RegisterSerializer
+from accounts.serializers import RegisterSerializer , UserSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -36,3 +36,10 @@ class LogoutView(APIView):
                 {"detail": "Token is invalid or already expired."},
                 status=status.HTTP_400_BAD_REQUEST
             )
+class UserProfileView(generics.RetrieveUpdateAPIView):
+    http_method_names = ['get', 'patch', 'head', 'options']
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
