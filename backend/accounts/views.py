@@ -2,22 +2,25 @@ from django.shortcuts import render
 from rest_framework import generics
 from rest_framework.permissions import AllowAny
 from accounts.models import User
-from accounts.serializers import RegisterSerializer , UserSerializer
+from accounts.serializers import RegisterSerializer , UserSerializer , LogoutSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema
 
 # Create your views here.
 class RegisterView(generics.CreateAPIView):
+    authentication_classes = []
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
 
 class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
+    @extend_schema(request=LogoutSerializer, responses={205: None})
     def post(self, request):
         try:
             refresh_token = request.data.get("refresh")

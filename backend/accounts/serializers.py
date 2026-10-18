@@ -44,3 +44,6 @@ class UserSerializer(serializers.ModelSerializer):
         if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError("Email already exists.")
         return value.lower()
+
+class LogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField()
