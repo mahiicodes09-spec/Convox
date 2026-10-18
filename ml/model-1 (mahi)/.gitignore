@@ -1,0 +1,25 @@
+
+# Ignore datasets inside the notebook folder
+notebook/*.csv
+notebook/*.tsv
+notebook/*.xlsx
+notebook/*.parquet
+notebook/*.json
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
