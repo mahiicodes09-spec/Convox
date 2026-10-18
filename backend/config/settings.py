@@ -147,3 +147,9 @@ simple_jwt = {
     'BLACKLIST_AFTER_ROTATION': False,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Smart Community API',
+    'DESCRIPTION': 'Backend API for Smart Community chat with AI moderation',
+    'VERSION': '1.0.0',
+}
