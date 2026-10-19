@@ -23,3 +23,12 @@ env/
 .env
 .env.*
 !.env.example
+
+
+# Ignore all dataset files
+data/
+notebook/*.csv
+notebook/*.tsv
+notebook/*.xlsx
+notebook/*.parquet
+notebook/*.json
