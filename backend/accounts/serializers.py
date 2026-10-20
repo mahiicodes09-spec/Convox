@@ -21,6 +21,11 @@ class RegisterSerializer(serializers.ModelSerializer):
         validated_data.pop('password2')  # password2 ko dictionary se remove kar diya
         user = User.objects.create_user(**validated_data)
         return user
+    def validate_email(self , value):
+        value = value.lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("User with this Email already exists.")
+        return value
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -47,3 +52,21 @@ class UserSerializer(serializers.ModelSerializer):
 
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
+
+class OTPSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+class OTPValidateSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(min_length=6, max_length=6)
+
+class ResetPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    reset_token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, validators=[validate_password])
+    new_password2 = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["new_password2"]:
+            raise serializers.ValidationError({"new_password2": "Passwords do not match."})
+        return attrs
