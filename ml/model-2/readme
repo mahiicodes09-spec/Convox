@@ -1,0 +1,42 @@
+# Smart Community — Text Moderation Models
+
+This folder contains the datasets and notebooks for building text moderation models for the Smart Community project.
+
+## Models
+
+- **Toxicity model:** uses the Civil Comments dataset to detect toxic or abusive comments and related categories.
+- **Spam model:** uses the spam dataset stored as `spam_dataset` to identify promotional, scam, or other spam messages. Its columns and labels must be inspected before preprocessing and training.
+
+The models are trained and evaluated separately. Their outputs can later be connected to the application so it can warn users about potentially harmful or unwanted messages.
+
+## Toxicity dataset
+
+`civil_comments_sample.csv` contains 50,000 rows and 8 columns:
+
+- `text`: comment text
+- `toxicity`
+- `severe_toxicity`
+- `obscene`
+- `threat`
+- `insult`
+- `identity_attack`
+- `sexual_explicit`
+
+The label columns contain scores. Before model training, the notebook will convert these scores into binary labels using thresholds selected from the data and validation results. The dataset is imbalanced, especially for less common categories, so evaluation should include per-class precision, recall, and F1-score rather than accuracy alone.
+
+## Planned workflow
+
+1. Inspect each dataset's columns, labels, missing values, and class balance.
+2. Clean empty or punctuation-only texts and handle duplicates carefully.
+3. Split each dataset into training, validation, and test sets.
+4. Apply text preprocessing, including NLTK tokenization, stop-word removal while preserving negation, and a comparison of stemming and lemmatization.
+5. Compare text features such as bag of words and TF-IDF with unigrams and bigrams.
+6. Train a Naive Bayes baseline and compare it with suitable text classifiers such as Logistic Regression or a linear SVM.
+7. Select thresholds and model settings using validation data; report final results on the held-out test data.
+
+## Notes
+
+- Keep the spam and toxicity datasets and models separate during training and evaluation.
+- Do not treat high accuracy alone as proof that a model is ready to deploy. Review class-level results and test representative messages.
+- Confirm each dataset's usage terms before public or commercial deployment.
+- This project is an educational moderation aid. Model predictions can be wrong and should be presented as warnings for user review.
