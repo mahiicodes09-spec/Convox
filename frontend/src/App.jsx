@@ -8,6 +8,7 @@ import {
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 
 export default function App() {
   return (
@@ -19,6 +20,10 @@ export default function App() {
           path="/forgot-password"
           element={<ForgotPasswordPage />}
         />
+        <Route
+  path="/verify-email"
+  element={<VerifyEmailPage />}
+/>
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
