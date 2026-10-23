@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { MessageCircle, Eye, EyeOff } from "lucide-react";
 import GoogleAuthButton from "../components/GoogleAuthButton";
 import api from "../services/api";
 
 export default function LoginPage() {
-  
+  const navigate = useNavigate();
+
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
@@ -120,8 +121,7 @@ export default function LoginPage() {
     localStorage.setItem("refreshToken", refreshToken);
 
     setSuccessMessage("Login successful!");
-
-    // Redirect will be configured when the dashboard route is ready.
+    navigate("/dashboard", { replace: true });
  
   } catch (err) {
     const data = err.response?.data;
