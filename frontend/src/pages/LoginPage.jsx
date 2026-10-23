@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { MessageCircle, Eye, EyeOff } from "lucide-react";
 import GoogleAuthButton from "../components/GoogleAuthButton";
+import api from "../services/api";
 
 export default function LoginPage() {
+  
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
@@ -34,25 +36,24 @@ export default function LoginPage() {
 
   // Validate email
   function validateEmail(email) {
-    const trimmedEmail = email.trim();
+  const trimmedEmail = email.trim();
 
-    if (!trimmedEmail) {
-      return "Email address is required.";
-    }
-
-    if (trimmedEmail.length > 254) {
-      return "Email address is too long.";
-    }
-
-    const emailPattern =
-      /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
-
-    if (!emailPattern.test(trimmedEmail)) {
-      return "Enter a valid email address.";
-    }
-
-    return "";
+  if (!trimmedEmail) {
+    return "Email address is required.";
   }
+
+  if (trimmedEmail.length > 254) {
+    return "Email address is too long.";
+  }
+
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (!emailPattern.test(trimmedEmail)) {
+    return "Enter a valid email address.";
+  }
+
+  return "";
+}
 
   // Validate password
   function validatePassword(password) {
@@ -89,34 +90,54 @@ export default function LoginPage() {
 
   // Handle login submission
   async function handleSubmit(e) {
-    e.preventDefault();
+  e.preventDefault();
+  setSuccessMessage("");
 
-    setSuccessMessage("");
+  if (!validateForm()) {
+    return;
+  }
 
-    if (!validateForm()) {
+  setLoading(true);
+  setErrors({});
+
+  try {
+    const response = await api.post("/auth/login/", {
+      email: form.email.trim(),
+      password: form.password,
+    });
+
+    const accessToken = response.data.access;
+    const refreshToken = response.data.refresh;
+
+    if (!accessToken || !refreshToken) {
+      setErrors({
+        form: "Login response did not contain the expected tokens.",
+      });
       return;
     }
 
-    setLoading(true);
+    localStorage.setItem("accessToken", accessToken);
+    localStorage.setItem("refreshToken", refreshToken);
 
-    try {
-      // Backend authentication will be connected later.
-      console.log("Login form submitted:", {
-        email: form.email.trim(),
-      });
+    setSuccessMessage("Login successful!");
 
-      setSuccessMessage(
-        "Form validation successful. Backend authentication is not connected yet."
-      );
-    } catch {
-      setErrors({
-        form: "Unable to sign in. Please try again.",
-      });
-    } finally {
-      setLoading(false);
-    }
+    // Redirect will be configured when the dashboard route is ready.
+ 
+  } catch (err) {
+    const data = err.response?.data;
+
+    const message =
+      data?.detail ||
+      data?.message ||
+      data?.non_field_errors?.[0] ||
+      data?.email?.[0] ||
+      "Unable to sign in. Please check your credentials and try again.";
+
+    setErrors({ form: message });
+  } finally {
+    setLoading(false);
   }
-
+}
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
       <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-lg sm:p-10">
