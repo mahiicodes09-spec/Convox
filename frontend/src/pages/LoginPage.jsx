@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { MessageCircle, Eye, EyeOff } from "lucide-react";
 import GoogleAuthButton from "../components/GoogleAuthButton";
 import api from "../services/api";
 
 export default function LoginPage() {
+  const location = useLocation();
   const navigate = useNavigate();
 
   const [showPassword, setShowPassword] = useState(false);
@@ -168,6 +169,15 @@ export default function LoginPage() {
         </div>
 
         {/* General error */}
+        {location.state?.logoutError && (
+          <div
+            role="alert"
+            className="mb-5 rounded-lg bg-red-50 p-3 text-sm text-red-700"
+          >
+            {location.state.logoutError}
+          </div>
+        )}
+
         {errors.form && (
           <div
             role="alert"

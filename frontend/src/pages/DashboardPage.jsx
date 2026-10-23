@@ -1,13 +1,38 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MessageCircle } from "lucide-react";
+import api from "../services/api";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  function handleLogout() {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    navigate("/login", { replace: true });
+  async function handleLogout() {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+    const refreshToken = localStorage.getItem("refreshToken");
+    let logoutError = "";
+
+    try {
+      if (!refreshToken) {
+        throw new Error("No refresh token is available to invalidate.");
+      }
+
+      await api.post("/auth/logout/", { refresh: refreshToken });
+    } catch {
+      logoutError =
+        "The server could not confirm logout. You have been signed out on this device.";
+    } finally {
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      navigate("/login", {
+        replace: true,
+        state: logoutError ? { logoutError } : undefined,
+      });
+    }
   }
 
   return (
@@ -32,9 +57,10 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={handleLogout}
+            disabled={isLoggingOut}
             className="mt-8 rounded-lg bg-indigo-600 px-6 py-3 font-semibold text-white transition hover:bg-indigo-700"
           >
-            Log out
+            {isLoggingOut ? "Logging out..." : "Log out"}
           </button>
         </div>
       </section>
