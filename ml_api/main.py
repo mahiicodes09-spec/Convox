@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 import joblib
@@ -12,7 +11,7 @@ app = FastAPI(title="Convox ML API")
 BASE_DIR = Path(__file__).resolve().parent.parent
 NOTEBOOK_DIR = BASE_DIR / "ml" / "model-1 (mahi)" / "notebook"
 
-# Load spam model and its vectorizer
+# Load spam model and vectorizer
 SPAM_DIR = NOTEBOOK_DIR / "spam"
 
 spam_bundle = joblib.load(SPAM_DIR / "spam_nb_model.pkl")
@@ -40,9 +39,9 @@ def home():
     return {"message": "Welcome to Convox ML API"}
 
 
-# Spam prediction
-@app.post("/predict/spam")
-def predict_spam(request: MessageRequest):
+# Combined spam + toxicity prediction
+@app.post("/predict")
+def predict_message(request: MessageRequest):
     message = request.message.strip()
 
     if not message:
@@ -51,35 +50,21 @@ def predict_spam(request: MessageRequest):
             detail="Message cannot be empty."
         )
 
-    features = spam_vectorizer.transform([message])
-    prediction = spam_model.predict(features)[0]
-    probabilities = spam_model.predict_proba(features)[0]
-    classes = list(spam_model.classes_)
+    # 1. Spam prediction
+    spam_features = spam_vectorizer.transform([message])
+    spam_prediction = spam_model.predict(spam_features)[0]
+    spam_probabilities = spam_model.predict_proba(spam_features)[0]
+    spam_classes = list(spam_model.classes_)
 
-    spam_probability = float(probabilities[classes.index(1)])
-    normal_index = next(
-        i for i, label in enumerate(classes) if label != 1
+    spam_probability = float(
+        spam_probabilities[spam_classes.index(1)]
     )
-    normal_probability = float(probabilities[normal_index])
+    normal_index = next(
+        i for i, label in enumerate(spam_classes) if label != 1
+    )
+    normal_probability = float(spam_probabilities[normal_index])
 
-    return {
-        "prediction": "Spam" if prediction == 1 else "Normal",
-        "spam_probability": spam_probability,
-        "normal_probability": normal_probability
-    }
-
-
-# Toxicity prediction
-@app.post("/predict/toxicity")
-def predict_toxicity(request: MessageRequest):
-    message = request.message.strip()
-
-    if not message:
-        raise HTTPException(
-            status_code=400,
-            detail="Message cannot be empty."
-        )
-
+    # 2. Toxicity prediction
     word_features = word_vectorizer.transform([message])
     char_features = char_vectorizer.transform([message])
 
@@ -87,19 +72,29 @@ def predict_toxicity(request: MessageRequest):
         [word_features, char_features]
     ).tocsr()
 
-    prediction = toxic_model.predict(combined_features)[0]
-    probabilities = toxic_model.predict_proba(combined_features)[0]
-    classes = list(toxic_model.classes_)
+    toxic_prediction = toxic_model.predict(combined_features)[0]
+    toxic_probabilities = toxic_model.predict_proba(combined_features)[0]
+    toxic_classes = list(toxic_model.classes_)
 
     toxicity_probability = float(
-        probabilities[classes.index(1)]
+        toxic_probabilities[toxic_classes.index(1)]
     )
     non_toxic_probability = float(
-        probabilities[classes.index(0)]
+        toxic_probabilities[toxic_classes.index(0)]
     )
 
+    # 3. Return both results
     return {
-        "prediction": "Toxic" if prediction == 1 else "Non-Toxic",
-        "toxicity_probability": toxicity_probability,
-        "non_toxic_probability": non_toxic_probability
+        "message": message,
+        "spam_detection": {
+            "prediction": "Spam" if spam_prediction == 1 else "Normal",
+            "spam_probability": spam_probability,
+            "normal_probability": normal_probability
+        },
+        "toxicity_detection": {
+            "prediction": "Toxic" if toxic_prediction == 1 else "Non-Toxic",
+            "toxicity_probability": toxicity_probability,
+            "non_toxic_probability": non_toxic_probability
+        }
     }
+
