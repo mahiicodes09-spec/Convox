@@ -31,3 +31,10 @@ notebook/*.tsv
 notebook/*.xlsx
 notebook/*.parquet
 notebook/*.json
+
+# Ignore datasets recursively inside notebook folders
+notebook/**/*.csv
+notebook/**/*.tsv
+notebook/**/*.xlsx
+notebook/**/*.parquet
+notebook/**/*.json
