@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { MessageCircle } from "lucide-react";
 import api from "../services/api";
@@ -10,8 +10,59 @@ const navigate = useNavigate();
 const [email, setEmail] = useState(location.state?.email || "");
 const [otp, setOtp] = useState("");
 const [loading, setLoading] = useState(false);
+const [resending, setResending] = useState(false);
+const [resendCooldown, setResendCooldown] = useState(0);
 const [error, setError] = useState("");
 const [success, setSuccess] = useState("");
+
+useEffect(() => {
+  if (resendCooldown <= 0) {
+    return undefined;
+  }
+
+  const timer = setTimeout(() => {
+    setResendCooldown((remaining) => Math.max(remaining - 1, 0));
+  }, 1000);
+
+  return () => clearTimeout(timer);
+}, [resendCooldown]);
+
+async function handleResend() {
+  if (resending || resendCooldown > 0) {
+    return;
+  }
+
+  setError("");
+  setSuccess("");
+
+  if (!email.trim()) {
+    setError("Please enter your email address.");
+    return;
+  }
+
+  setResending(true);
+
+  try {
+    await api.post("/auth/resend-verification/", { email: email.trim() });
+    setSuccess("A new OTP has been sent to your email address.");
+    setResendCooldown(60);
+  } catch (err) {
+    const data = err.response?.data;
+    const message =
+      data?.detail ||
+      data?.message ||
+      data?.email?.[0] ||
+      "Unable to resend the OTP. Please try again.";
+
+    setError(
+      typeof message === "string"
+        ? message
+        : "Unable to resend the OTP. Please try again."
+    );
+  } finally {
+    setResending(false);
+  }
+}
 
 async function handleSubmit(e) {
 e.preventDefault();
@@ -127,6 +178,19 @@ return (
         {loading ? "Verifying..." : "Verify Email"}
       </button>
     </form>
+
+    <button
+      type="button"
+      onClick={handleResend}
+      disabled={resending || resendCooldown > 0}
+      className="mt-5 w-full rounded-lg border border-indigo-600 py-3 font-semibold text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {resending
+        ? "Sending..."
+        : resendCooldown > 0
+          ? `Resend OTP (${resendCooldown}s)`
+          : "Resend OTP"}
+    </button>
 
     <p className="mt-6 text-center text-sm text-slate-600">
       Already verified?{" "}
