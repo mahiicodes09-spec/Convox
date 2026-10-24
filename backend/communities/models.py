@@ -47,3 +47,18 @@ class ServerMember(models.Model):
 
     def __str__(self):
         return f"{self.user} in {self.server} ({self.role})"
+
+
+class Channel(models.Model):
+    server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name="channels")
+    name = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["server", "name"], name="unique_channel_name_in_server")
+        ]
+
+    def __str__(self):
+        return f"#{self.name} ({self.server})"
