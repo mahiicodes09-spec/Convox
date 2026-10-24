@@ -2,11 +2,12 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .serializers import InvitePreviewSerializer, JoinServerSerializer, ServerSerializer
-from .models import Server, ServerMember
+from .serializers import InvitePreviewSerializer, JoinServerSerializer, ServerSerializer, ChannelSerializer
+from .models import Server, ServerMember, Channel
 from .permissions import IsServerOwnerOrReadOnly
 # Create your views here.
 
@@ -22,6 +23,7 @@ class ServerListCreateView(generics.ListCreateAPIView):
         with transaction.atomic():
             server = serializer.save(owner=self.request.user)
             ServerMember.objects.create(server=server, user=self.request.user, role="owner")
+            Channel.objects.create(server=server, name="general")
 
 
 class ServerDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -54,3 +56,24 @@ class InvitePreviewView(APIView):
     def get(self, request, code):
         server = get_object_or_404(Server, invite_code=code)
         return Response(InvitePreviewSerializer(server, context={"request": request}).data)
+
+
+class ChannelListCreateView(generics.ListCreateAPIView):
+    serializer_class = ChannelSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_server(self):
+        return get_object_or_404(Server, id=self.kwargs["server_id"], members__user=self.request.user)
+
+    def get_queryset(self):
+        return Channel.objects.filter(server=self.get_server())
+
+    def perform_create(self, serializer):
+        server = self.get_server()
+        member = ServerMember.objects.get(server=server, user=self.request.user)
+        if member.role not in ["owner", "admin"]:
+            raise PermissionDenied("Sirf owner ya admin channel bana sakte hain.")
+        name = serializer.validated_data["name"]
+        if Channel.objects.filter(server=server, name=name).exists():
+            raise ValidationError({"name": "Is naam ka channel pehle se hai."})
+        serializer.save(server=server)
