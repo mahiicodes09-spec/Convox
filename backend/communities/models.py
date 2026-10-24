@@ -1,11 +1,13 @@
 from django.conf import settings
 from django.db import models
+import secrets
 
 
 class Server(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     icon = models.ImageField(upload_to="server_icons/", blank=True, null=True)
+    invite_code = models.CharField(max_length=100, unique=True , null=True , blank = True , editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -13,9 +15,14 @@ class Server(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def save(self , *args , **kwargs):
+        if not self.invite_code:
+            self.invite_code = secrets.token_urlsafe(6)
+        super().save(*args, **kwargs)
+
+
     def __str__(self):
         return self.name
-
 
 class ServerMember(models.Model):
     ROLE_CHOICES = [
