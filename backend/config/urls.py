@@ -20,15 +20,26 @@ from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from django.http import JsonResponse
+from django.core.cache import cache
 
 def health(request):
-    return JsonResponse({"status": "ok"})
+    try:
+        cache.set("health_check", "ok", timeout=10)
+        cache_ok = cache.get("health_check") == "ok"
+    except Exception:
+        cache_ok = False
+    return JsonResponse({
+        "status": "ok",
+        "cache": "redis" if settings.REDIS_URL else "locmem",
+        "cache_ok": cache_ok,
+    })
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/health/', health),
+    path('api/', include('communities.urls')),
 ]
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL , document_root = settings.MEDIA_ROOT) 
