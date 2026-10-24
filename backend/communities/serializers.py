@@ -1,6 +1,6 @@
 from django.conf import settings
 from rest_framework import serializers
-from .models import Server
+from .models import Server, Channel
 
 
 class ServerSerializer(serializers.ModelSerializer):
@@ -34,3 +34,13 @@ class InvitePreviewSerializer(serializers.ModelSerializer):
 
     def get_member_count(self, obj):
         return obj.members.count()
+
+
+class ChannelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Channel
+        fields = ["id", "server", "name", "created_at"]
+        read_only_fields = ["server", "created_at"]
+
+    def validate_name(self, value):
+        return value.strip().lower().replace(" ", "-")
