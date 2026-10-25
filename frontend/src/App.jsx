@@ -13,22 +13,32 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import DashboardPage from "./pages/DashboardPage";
 
+/**
+ * Checks the saved access token before showing protected content.
+ * GET /auth/me/ also supplies the backend profile that the dashboard needs.
+ */
 function ProtectedRoute({ children }) {
   const accessToken = localStorage.getItem("accessToken");
-  const [status, setStatus] = useState("checking");
+  // Derive the first screen from storage instead of setting state in the effect.
+  const [status, setStatus] = useState(() =>
+    accessToken ? "checking" : "unauthenticated",
+  );
+  const [profile, setProfile] = useState(null);
 
   useEffect(() => {
     if (!accessToken) {
-      setStatus("unauthenticated");
       return;
     }
 
     let active = true;
 
+    // The existing Axios client adds Authorization: Bearer <accessToken>.
     api
       .get("/auth/me/")
-      .then(() => {
+      .then((response) => {
         if (active) {
+          // The profile is passed down so the dashboard does not repeat this request.
+          setProfile(response.data);
           setStatus("authenticated");
         }
       })
@@ -74,7 +84,7 @@ function ProtectedRoute({ children }) {
     );
   }
 
-  return children;
+  return typeof children === "function" ? children(profile) : children;
 }
 
 export default function App() {
@@ -92,7 +102,7 @@ export default function App() {
           path="/dashboard"
           element={
             <ProtectedRoute>
-              <DashboardPage />
+              {(profile) => <DashboardPage profile={profile} />}
             </ProtectedRoute>
           }
         />
