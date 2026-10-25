@@ -72,6 +72,14 @@ function getApiErrorMessage(error, fallback) {
   return typeof detail === "string" ? detail : error.message || fallback;
 }
 
+function getChannelServerId(channel) {
+  const server = channel?.server ?? channel?.server_id;
+  if (server && typeof server === "object") {
+    return server.id == null ? null : String(server.id);
+  }
+  return server == null ? null : String(server);
+}
+
 /**
  * Shows a signed-in user's real backend avatar or a neutral initials placeholder.
  * The same small component keeps the profile appearance consistent in both sidebars.
@@ -196,7 +204,12 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [servers, setServers] = useState([]);
   const [selectedServerId, setSelectedServerId] = useState("");
   const [channels, setChannels] = useState([]);
+  // Incrementing this value re-runs the existing channel-fetching effect after
+  // a successful channel creation without introducing a second GET request path.
+  const [channelRefreshKey, setChannelRefreshKey] = useState(0);
   const [selectedChannelId, setSelectedChannelId] = useState("");
+  const selectedChannelIdRef = useRef(selectedChannelId);
+  const pendingCreatedChannelRef = useRef(null);
   const [messages, setMessages] = useState([]);
   const [serversLoading, setServersLoading] = useState(true);
   const [channelsLoading, setChannelsLoading] = useState(false);
@@ -204,6 +217,11 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [serversError, setServersError] = useState("");
   const [channelsError, setChannelsError] = useState("");
   const [messagesError, setMessagesError] = useState("");
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [newChannelName, setNewChannelName] = useState("");
+  const [creatingChannel, setCreatingChannel] = useState(false);
+  const [createChannelError, setCreateChannelError] = useState("");
+  const [channelActionMessage, setChannelActionMessage] = useState("");
 
   // These form states hold only user-entered values. Submitting them sends the
   // exact request fields documented by Swagger for the matching API operation.
@@ -235,6 +253,9 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [creationSuccess, setCreationSuccess] = useState("");
   const createModalRef = useRef(null);
   const createTriggerRef = useRef(null);
+  const createChannelDialogRef = useRef(null);
+  const createChannelTriggerRef = useRef(null);
+  const selectedServerIdRef = useRef(selectedServerId);
   const editCommunityDialogRef = useRef(null);
   const editCommunityTriggerRef = useRef(null);
   const deleteCommunityDialogRef = useRef(null);
@@ -268,6 +289,13 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     [navigate],
   );
 
+  // Keep refs current for asynchronous handlers and fetch effects without
+  // reading or changing ref values during rendering.
+  useEffect(() => {
+    selectedServerIdRef.current = selectedServerId;
+    selectedChannelIdRef.current = selectedChannelId;
+  }, [selectedChannelId, selectedServerId]);
+
   // GET /servers/ returns the signed-in user's server list as an array. The
   // shared Axios client supplies the Bearer token from localStorage automatically.
   useEffect(() => {
@@ -286,8 +314,12 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
         if (active) {
           setServers(response.data);
           setChannels([]);
+          setChannelsLoading(false);
+          setChannelsError("");
           setSelectedChannelId("");
           setMessages([]);
+          setMessagesError("");
+          setMessagesLoading(false);
           setSelectedServerId((currentId) => {
             const stillAvailable = response.data.some(
               (server) => String(server.id) === currentId,
@@ -328,11 +360,15 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     }
 
     let active = true;
+    const previouslySelectedChannelId = selectedChannelIdRef.current;
 
     async function loadChannels() {
       setChannelsLoading(true);
       setChannelsError("");
+      setChannels([]);
       setMessages([]);
+      setMessagesError("");
+      setMessagesLoading(false);
       setSelectedChannelId("");
 
       try {
@@ -343,10 +379,42 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
           throw new Error("The channels response did not contain a list.");
         }
 
+        const serverChannels = response.data.filter((channel) => {
+          if (
+            !channel ||
+            (typeof channel.id !== "string" &&
+              typeof channel.id !== "number") ||
+            !String(channel.id).trim()
+          ) {
+            return false;
+          }
+
+          const channelServerId = getChannelServerId(channel);
+          return channelServerId == null || channelServerId === selectedServerId;
+        });
+
         if (active) {
-          setChannels(response.data);
+          setChannels(serverChannels);
+
+          const pendingCreatedChannel = pendingCreatedChannelRef.current;
+          const createdChannel =
+            pendingCreatedChannel?.serverId === selectedServerId
+              ? serverChannels.find(
+                  (channel) =>
+                    String(channel.id) === pendingCreatedChannel.channelId,
+                )
+              : null;
+          pendingCreatedChannelRef.current = null;
+
+          const stillAvailableChannel = serverChannels.find(
+            (channel) =>
+              String(channel.id) === previouslySelectedChannelId,
+          );
+          const channelToSelect =
+            createdChannel || stillAvailableChannel || serverChannels[0];
+
           setSelectedChannelId(
-            response.data[0] ? String(response.data[0].id) : "",
+            channelToSelect ? String(channelToSelect.id) : "",
           );
         }
       } catch (error) {
@@ -368,7 +436,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     return () => {
       active = false;
     };
-  }, [handleRequestError, selectedServerId]);
+  }, [channelRefreshKey, handleRequestError, selectedServerId]);
 
   // GET /channels/{id}/messages/ returns a cursor-paginated object with a
   // `results` array. This first dashboard view loads the first page only.
@@ -382,6 +450,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     async function loadMessages() {
       setMessagesLoading(true);
       setMessagesError("");
+      setMessages([]);
 
       try {
         const response = await api.get(
@@ -435,32 +504,41 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     );
   });
 
-  const anyCommunityDialogOpen =
-    createModalOpen || editCommunityOpen || deleteCommunityOpen;
-  const activeCommunityDialogRef = createModalOpen
+  const anyDashboardDialogOpen =
+    createModalOpen ||
+    editCommunityOpen ||
+    deleteCommunityOpen ||
+    createChannelOpen;
+  const activeDashboardDialogRef = createModalOpen
     ? createModalRef
     : editCommunityOpen
       ? editCommunityDialogRef
-      : deleteCommunityDialogRef;
+      : deleteCommunityOpen
+        ? deleteCommunityDialogRef
+        : createChannelDialogRef;
 
   /**
-   * Keep keyboard focus inside whichever community dialog is open. Reusing one
-   * effect for create, edit, and delete prevents their accessibility behavior
-   * from drifting apart.
+   * Keep keyboard focus inside whichever dashboard dialog is open. Sharing one
+   * effect keeps create, edit, delete, and channel dialogs consistent.
    */
   useEffect(() => {
-    if (!anyCommunityDialogOpen) {
+    if (!anyDashboardDialogOpen) {
       return undefined;
     }
 
-    const modal = activeCommunityDialogRef.current;
+    const modal = activeDashboardDialogRef.current;
     const firstControl = modal?.querySelector("[data-modal-autofocus]");
     firstControl?.focus();
 
     function handleModalKeyDown(event) {
       if (event.key === "Escape") {
         event.preventDefault();
-        if (creating || savingCommunityEdit || deletingCommunity) {
+        if (
+          creating ||
+          savingCommunityEdit ||
+          deletingCommunity ||
+          creatingChannel
+        ) {
           return;
         }
 
@@ -482,6 +560,12 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
             shouldScroll: false,
           };
           setDeleteCommunityOpen(false);
+        } else if (createChannelOpen) {
+          modalFocusReturnRef.current = {
+            element: createChannelTriggerRef.current,
+            shouldScroll: false,
+          };
+          setCreateChannelOpen(false);
         }
         return;
       }
@@ -514,10 +598,12 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     document.addEventListener("keydown", handleModalKeyDown);
     return () => document.removeEventListener("keydown", handleModalKeyDown);
   }, [
-    activeCommunityDialogRef,
-    anyCommunityDialogOpen,
+    activeDashboardDialogRef,
+    anyDashboardDialogOpen,
     createModalOpen,
     createModalStep,
+    createChannelOpen,
+    creatingChannel,
     creating,
     deleteCommunityOpen,
     deletingCommunity,
@@ -525,10 +611,10 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     savingCommunityEdit,
   ]);
 
-  // Restore focus after React removes the last open dialog. The create flow can
-  // return focus to its opener, while the invite shortcut targets the invite form.
+  // Restore focus after React removes the last open dialog. Dialog openers and
+  // the invite shortcut set the element that should receive focus here.
   useEffect(() => {
-    if (anyCommunityDialogOpen || !modalFocusReturnRef.current) {
+    if (anyDashboardDialogOpen || !modalFocusReturnRef.current) {
       return;
     }
 
@@ -538,7 +624,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     if (shouldScroll) {
       element?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [anyCommunityDialogOpen]);
+  }, [anyDashboardDialogOpen]);
 
   function openCreateModal() {
     setCreateError("");
@@ -558,6 +644,93 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     };
     setCreateModalOpen(false);
   }, [creating]);
+
+  function openCreateChannelModal(event) {
+    if (!selectedServer || creatingChannel) {
+      return;
+    }
+
+    createChannelTriggerRef.current = event.currentTarget;
+    setNewChannelName("");
+    setCreateChannelError("");
+    setChannelActionMessage("");
+    setCreateChannelOpen(true);
+  }
+
+  const closeCreateChannelModal = useCallback(() => {
+    if (creatingChannel) {
+      return;
+    }
+
+    modalFocusReturnRef.current = {
+      element: createChannelTriggerRef.current,
+      shouldScroll: false,
+    };
+    setCreateChannelOpen(false);
+  }, [creatingChannel]);
+
+  /**
+   * POST /servers/{server_id}/channels/ accepts exactly `{ name }`. After the
+   * server confirms creation, the existing channel effect reloads that
+   * community's channels and keeps channel/message selection in sync.
+   */
+  async function handleCreateChannel(event) {
+    event.preventDefault();
+    const name = newChannelName.trim();
+
+    if (!selectedServer || creatingChannel) {
+      return;
+    }
+    if (!name) {
+      setCreateChannelError("A channel name is required.");
+      return;
+    }
+
+    const serverId = String(selectedServer.id);
+    setCreatingChannel(true);
+    setCreateChannelError("");
+    setChannelActionMessage("");
+
+    try {
+      const response = await api.post(
+        `/servers/${serverId}/channels/`,
+        { name },
+      );
+      const createdChannel = response.data;
+      const createdChannelId =
+        typeof createdChannel?.id === "string" ||
+        typeof createdChannel?.id === "number"
+          ? String(createdChannel.id)
+          : "";
+      const createdChannelServerId = getChannelServerId(createdChannel);
+
+      pendingCreatedChannelRef.current =
+        createdChannelId &&
+        createdChannelServerId !== null &&
+        createdChannelServerId !== serverId
+          ? null
+          : createdChannelId && selectedServerIdRef.current === serverId
+            ? { serverId, channelId: createdChannelId }
+            : null;
+
+      setChannelActionMessage(`#${name} was created successfully.`);
+      setChannelRefreshKey((currentKey) => currentKey + 1);
+      setNewChannelName("");
+      modalFocusReturnRef.current = {
+        element: createChannelTriggerRef.current,
+        shouldScroll: false,
+      };
+      setCreateChannelOpen(false);
+    } catch (error) {
+      handleRequestError(
+        error,
+        setCreateChannelError,
+        "Could not create this channel. Please try again.",
+      );
+    } finally {
+      setCreatingChannel(false);
+    }
+  }
 
   /**
    * Copy the selected server's existing values into the edit form. Keeping a
@@ -691,6 +864,10 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       setChannels([]);
       setSelectedChannelId("");
       setMessages([]);
+      setChannelsError("");
+      setMessagesError("");
+      setChannelsLoading(false);
+      setMessagesLoading(false);
       setSelectedServerId(
         remainingServers[0] ? String(remainingServers[0].id) : "",
       );
@@ -793,6 +970,10 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       setChannels([]);
       setSelectedChannelId("");
       setMessages([]);
+      setChannelsError("");
+      setMessagesError("");
+      setChannelsLoading(false);
+      setMessagesLoading(false);
       setSelectedServerId(String(joinedServer.id));
       setInvitePreview(null);
       setInviteCode("");
@@ -836,6 +1017,10 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       setChannels([]);
       setSelectedChannelId("");
       setMessages([]);
+      setChannelsError("");
+      setMessagesError("");
+      setChannelsLoading(false);
+      setMessagesLoading(false);
       setSelectedServerId(String(createdServer.id));
       setCreationSuccess(`${createdServer.name} was created successfully.`);
       setCommunityName("");
@@ -1235,10 +1420,18 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                     onSelect={() => {
                       setCommunityActionError("");
                       setCommunityActionMessage("");
-                      setChannels([]);
-                      setSelectedChannelId("");
-                      setMessages([]);
-                      setSelectedServerId(String(server.id));
+                      const nextServerId = String(server.id);
+                      if (nextServerId !== selectedServerId) {
+                        pendingCreatedChannelRef.current = null;
+                        setChannels([]);
+                        setSelectedChannelId("");
+                        setMessages([]);
+                        setChannelsError("");
+                        setMessagesError("");
+                        setChannelsLoading(false);
+                        setMessagesLoading(false);
+                        setSelectedServerId(nextServerId);
+                      }
                       setActiveNav("My communities");
                     }}
                   />
@@ -1381,6 +1574,15 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                     </span>
                   </span>
                 </div>
+                <button
+                  type="button"
+                  onClick={openCreateChannelModal}
+                  disabled={!selectedServer || creatingChannel}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-2 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50 xl:hidden"
+                >
+                  <Plus size={14} />
+                  Create Channel
+                </button>
                 {channels.length > 0 && (
                   <label className="sr-only" htmlFor="channel-select">
                     Select a channel
@@ -1390,9 +1592,11 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                   <select
                     id="channel-select"
                     value={selectedChannelId}
-                    onChange={(event) =>
-                      setSelectedChannelId(event.target.value)
-                    }
+                    onChange={(event) => {
+                      setMessages([]);
+                      setMessagesError("");
+                      setSelectedChannelId(event.target.value);
+                    }}
                     className="max-w-48 rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-xs text-neutral-700 outline-none focus:border-neutral-500"
                   >
                     {channels.map((channel) => (
@@ -1647,7 +1851,26 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
             </section>
 
             <section>
-              <SectionHeading eyebrow="In this community" title="Channels" />
+              <SectionHeading eyebrow="In this community" title="Channels">
+                <button
+                  ref={createChannelTriggerRef}
+                  type="button"
+                  onClick={openCreateChannelModal}
+                  disabled={!selectedServer || creatingChannel}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-neutral-950 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus size={15} />
+                  Create Channel
+                </button>
+              </SectionHeading>
+              {channelActionMessage && (
+                <p
+                  role="status"
+                  className="mb-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800"
+                >
+                  {channelActionMessage}
+                </p>
+              )}
               {channelsLoading ? (
                 <p role="status" className="text-sm text-neutral-500">
                   Loading channels...
@@ -1662,9 +1885,11 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                     <li key={channel.id}>
                       <button
                         type="button"
-                        onClick={() =>
-                          setSelectedChannelId(String(channel.id))
-                        }
+                        onClick={() => {
+                          setMessages([]);
+                          setMessagesError("");
+                          setSelectedChannelId(String(channel.id));
+                        }}
                         className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
                           selectedChannelId === String(channel.id)
                             ? "bg-neutral-100 font-medium text-neutral-950"
@@ -2102,6 +2327,107 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                 </button>
               </footer>
             </div>
+          </section>
+        </div>
+      )}
+
+      {createChannelOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-neutral-950/60 p-3 backdrop-blur-[2px] sm:p-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeCreateChannelModal();
+            }
+          }}
+        >
+          <section
+            ref={createChannelDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-channel-title"
+            aria-describedby="create-channel-description"
+            aria-busy={creatingChannel}
+            tabIndex={-1}
+            className="my-auto w-full max-w-md overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl outline-none"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-5 sm:px-6">
+              <div>
+                <h2
+                  id="create-channel-title"
+                  className="text-xl font-semibold tracking-tight"
+                >
+                  Create Channel
+                </h2>
+                <p
+                  id="create-channel-description"
+                  className="mt-2 text-sm leading-6 text-neutral-600"
+                >
+                  Add a channel to {selectedServer?.name || "this community"}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCreateChannelModal}
+                disabled={creatingChannel}
+                aria-label="Close create channel dialog"
+                className="shrink-0 rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X size={19} />
+              </button>
+            </header>
+
+            <form onSubmit={handleCreateChannel} className="px-5 py-5 sm:px-6">
+              <label
+                htmlFor="new-channel-name"
+                className="block text-sm font-medium text-neutral-800"
+              >
+                Channel name <span aria-hidden="true">*</span>
+                <input
+                  id="new-channel-name"
+                  data-modal-autofocus="true"
+                  required
+                  autoComplete="off"
+                  value={newChannelName}
+                  onChange={(event) => {
+                    setNewChannelName(event.target.value);
+                    setCreateChannelError("");
+                  }}
+                  aria-invalid={Boolean(createChannelError)}
+                  aria-describedby={
+                    createChannelError ? "create-channel-error" : undefined
+                  }
+                  className="mt-2 w-full rounded-xl border border-neutral-300 px-3.5 py-3 text-sm text-neutral-950 outline-none transition focus:border-neutral-600 focus:ring-2 focus:ring-neutral-200"
+                />
+              </label>
+
+              {createChannelError && (
+                <p
+                  id="create-channel-error"
+                  role="alert"
+                  className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"
+                >
+                  {createChannelError}
+                </p>
+              )}
+
+              <footer className="mt-6 flex flex-col-reverse justify-end gap-3 border-t border-neutral-100 pt-4 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={closeCreateChannelModal}
+                  disabled={creatingChannel}
+                  className="rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!selectedServer || creatingChannel}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-neutral-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {creatingChannel ? "Creating..." : "Create Channel"}
+                </button>
+              </footer>
+            </form>
           </section>
         </div>
       )}
