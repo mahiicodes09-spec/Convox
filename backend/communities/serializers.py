@@ -1,6 +1,6 @@
 from django.conf import settings
 from rest_framework import serializers
-from .models import Server, Channel
+from .models import Server, ServerMember, Channel
 
 
 class ServerSerializer(serializers.ModelSerializer):
@@ -44,3 +44,19 @@ class ChannelSerializer(serializers.ModelSerializer):
 
     def validate_name(self, value):
         return value.strip().lower().replace(" ", "-")
+
+
+class MemberSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
+    display_name = serializers.CharField(source="user.display_name", read_only=True)
+    avatar = serializers.ImageField(source="user.avatar", read_only=True)
+
+    class Meta:
+        model = ServerMember
+        fields = ["user_id", "display_name", "avatar", "role", "joined_at"]
+        read_only_fields = ["joined_at"]
+
+    def validate_role(self, value):
+        if value == "owner":
+            raise serializers.ValidationError("Kisi ko owner nahi bana sakte.")
+        return value

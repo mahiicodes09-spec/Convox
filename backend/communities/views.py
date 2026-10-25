@@ -6,7 +6,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .serializers import InvitePreviewSerializer, JoinServerSerializer, ServerSerializer, ChannelSerializer
+from .serializers import InvitePreviewSerializer, JoinServerSerializer, ServerSerializer, ChannelSerializer, MemberSerializer
 from .models import Server, ServerMember, Channel
 from .permissions import IsServerOwnerOrReadOnly
 # Create your views here.
@@ -77,3 +77,27 @@ class ChannelListCreateView(generics.ListCreateAPIView):
         if Channel.objects.filter(server=server, name=name).exists():
             raise ValidationError({"name": "Is naam ka channel pehle se hai."})
         serializer.save(server=server)
+
+
+class MemberListView(generics.ListAPIView):
+    serializer_class = MemberSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        server = get_object_or_404(Server, id=self.kwargs["server_id"], members__user=self.request.user)
+        return ServerMember.objects.filter(server=server).select_related("user").order_by("joined_at")
+
+
+class MemberRoleView(generics.UpdateAPIView):
+    serializer_class = MemberSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["patch", "options"]
+
+    def get_object(self):
+        server = get_object_or_404(Server, id=self.kwargs["server_id"], members__user=self.request.user)
+        if server.owner != self.request.user:
+            raise PermissionDenied("Sirf owner roles badal sakta hai.")
+        member = get_object_or_404(ServerMember, server=server, user_id=self.kwargs["user_id"])
+        if member.user_id == server.owner_id:
+            raise PermissionDenied("Owner ka role nahi badal sakte.")
+        return member

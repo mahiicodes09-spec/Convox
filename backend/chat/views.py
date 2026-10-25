@@ -6,6 +6,7 @@ from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from communities.models import Channel, ServerMember
 from .models import Message
+from .moderation import moderate
 from .serializers import MessageSerializer
 # Create your views here.
 
@@ -27,7 +28,8 @@ class MessageListCreateView(generics.ListCreateAPIView):
         return Message.objects.filter(channel=self.get_channel()).select_related("author")
 
     def perform_create(self, serializer):
-        serializer.save(channel=self.get_channel(), author=self.request.user)
+        content = serializer.validated_data["content"]
+        serializer.save(channel=self.get_channel(), author=self.request.user, **moderate(content))
 
 
 class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -41,7 +43,8 @@ class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):
     def perform_update(self, serializer):
         if serializer.instance.author != self.request.user:
             raise PermissionDenied("Sirf apna message edit kar sakte ho.")
-        serializer.save(edited_at=timezone.now())
+        content = serializer.validated_data.get("content", serializer.instance.content)
+        serializer.save(edited_at=timezone.now(), **moderate(content))
 
     def perform_destroy(self, instance):
         if instance.author != self.request.user:
