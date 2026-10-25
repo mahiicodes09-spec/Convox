@@ -4,8 +4,8 @@ import {
   Bell,
   BookOpen,
   Check,
-  ChevronRight,
   ChevronDown,
+  ChevronRight,
   CircleAlert,
   Code2,
   Compass,
@@ -15,10 +15,12 @@ import {
   LayoutDashboard,
   LogOut,
   MessageCircle,
+  Pencil,
   Plus,
   Search,
   Send,
   Settings,
+  Trash2,
   UsersRound,
   X,
 } from "lucide-react";
@@ -215,6 +217,17 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [communityDescription, setCommunityDescription] = useState("");
   const [createError, setCreateError] = useState("");
   const [creating, setCreating] = useState(false);
+  // These states track the selected server being edited and whether its
+  // confirmation, save, or delete operation is currently active.
+  const [editCommunityOpen, setEditCommunityOpen] = useState(false);
+  const [editingServerId, setEditingServerId] = useState("");
+  const [editCommunityName, setEditCommunityName] = useState("");
+  const [editCommunityDescription, setEditCommunityDescription] = useState("");
+  const [savingCommunityEdit, setSavingCommunityEdit] = useState(false);
+  const [deleteCommunityOpen, setDeleteCommunityOpen] = useState(false);
+  const [deletingCommunity, setDeletingCommunity] = useState(false);
+  const [communityActionError, setCommunityActionError] = useState("");
+  const [communityActionMessage, setCommunityActionMessage] = useState("");
   // The visibility and step state control the two-screen creation dialog;
   // creationSuccess shows the server-confirmed result after the dialog closes.
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -222,6 +235,10 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [creationSuccess, setCreationSuccess] = useState("");
   const createModalRef = useRef(null);
   const createTriggerRef = useRef(null);
+  const editCommunityDialogRef = useRef(null);
+  const editCommunityTriggerRef = useRef(null);
+  const deleteCommunityDialogRef = useRef(null);
+  const deleteCommunityTriggerRef = useRef(null);
   const modalFocusReturnRef = useRef(null);
   const [messageDraft, setMessageDraft] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -418,29 +435,53 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     );
   });
 
+  const anyCommunityDialogOpen =
+    createModalOpen || editCommunityOpen || deleteCommunityOpen;
+  const activeCommunityDialogRef = createModalOpen
+    ? createModalRef
+    : editCommunityOpen
+      ? editCommunityDialogRef
+      : deleteCommunityDialogRef;
+
   /**
-   * While the modal is open, Escape closes it and Tab stays inside its controls.
-   * Returning focus to the opening button helps keyboard users continue where
-   * they left off after closing or completing the dialog.
+   * Keep keyboard focus inside whichever community dialog is open. Reusing one
+   * effect for create, edit, and delete prevents their accessibility behavior
+   * from drifting apart.
    */
   useEffect(() => {
-    if (!createModalOpen) {
+    if (!anyCommunityDialogOpen) {
       return undefined;
     }
 
-    const modal = createModalRef.current;
+    const modal = activeCommunityDialogRef.current;
     const firstControl = modal?.querySelector("[data-modal-autofocus]");
     firstControl?.focus();
 
     function handleModalKeyDown(event) {
       if (event.key === "Escape") {
         event.preventDefault();
-        if (!creating) {
+        if (creating || savingCommunityEdit || deletingCommunity) {
+          return;
+        }
+
+        if (createModalOpen) {
           modalFocusReturnRef.current = {
             element: createTriggerRef.current,
             shouldScroll: false,
           };
           setCreateModalOpen(false);
+        } else if (editCommunityOpen) {
+          modalFocusReturnRef.current = {
+            element: editCommunityTriggerRef.current,
+            shouldScroll: false,
+          };
+          setEditCommunityOpen(false);
+        } else if (deleteCommunityOpen) {
+          modalFocusReturnRef.current = {
+            element: deleteCommunityTriggerRef.current,
+            shouldScroll: false,
+          };
+          setDeleteCommunityOpen(false);
         }
         return;
       }
@@ -472,12 +513,22 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
 
     document.addEventListener("keydown", handleModalKeyDown);
     return () => document.removeEventListener("keydown", handleModalKeyDown);
-  }, [createModalOpen, createModalStep, creating]);
+  }, [
+    activeCommunityDialogRef,
+    anyCommunityDialogOpen,
+    createModalOpen,
+    createModalStep,
+    creating,
+    deleteCommunityOpen,
+    deletingCommunity,
+    editCommunityOpen,
+    savingCommunityEdit,
+  ]);
 
-  // Restore focus after React removes the dialog. The invite action uses this
-  // same step to focus and scroll to the existing invite form instead.
+  // Restore focus after React removes the last open dialog. The create flow can
+  // return focus to its opener, while the invite shortcut targets the invite form.
   useEffect(() => {
-    if (createModalOpen || !modalFocusReturnRef.current) {
+    if (anyCommunityDialogOpen || !modalFocusReturnRef.current) {
       return;
     }
 
@@ -487,7 +538,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     if (shouldScroll) {
       element?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [createModalOpen]);
+  }, [anyCommunityDialogOpen]);
 
   function openCreateModal() {
     setCreateError("");
@@ -496,7 +547,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     setCreateModalOpen(true);
   }
 
-  function closeCreateModal() {
+  const closeCreateModal = useCallback(() => {
     if (creating) {
       return;
     }
@@ -506,6 +557,160 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       shouldScroll: false,
     };
     setCreateModalOpen(false);
+  }, [creating]);
+
+  /**
+   * Copy the selected server's existing values into the edit form. Keeping a
+   * separate ID ensures the PATCH updates the same server even if list state
+   * changes while the request is pending.
+   */
+  function openEditCommunityModal() {
+    if (!selectedServer) {
+      return;
+    }
+
+    setEditingServerId(String(selectedServer.id));
+    setEditCommunityName(selectedServer.name || "");
+    setEditCommunityDescription(selectedServer.description || "");
+    setCommunityActionError("");
+    setCommunityActionMessage("");
+    setEditCommunityOpen(true);
+  }
+
+  const closeEditCommunityModal = useCallback(() => {
+    if (savingCommunityEdit) {
+      return;
+    }
+
+    modalFocusReturnRef.current = {
+      element: editCommunityTriggerRef.current,
+      shouldScroll: false,
+    };
+    setEditCommunityOpen(false);
+  }, [savingCommunityEdit]);
+
+  /**
+   * PATCH /servers/{id}/ accepts editable `name` and `description` fields.
+   * Update only the matching list entry from the returned Server object; if the
+   * request fails, the original server remains unchanged and the form stays open.
+   */
+  async function handleSaveCommunityEdit(event) {
+    event.preventDefault();
+    const name = editCommunityName.trim();
+    if (!name || savingCommunityEdit) {
+      if (!name) {
+        setCommunityActionError("A community name is required.");
+      }
+      return;
+    }
+
+    setSavingCommunityEdit(true);
+    setCommunityActionError("");
+    setCommunityActionMessage("");
+
+    try {
+      const response = await api.patch(`/servers/${editingServerId}/`, {
+        name,
+        description: editCommunityDescription.trim(),
+      });
+      const updatedServer = response.data;
+
+      setServers((currentServers) =>
+        currentServers.map((server) =>
+          String(server.id) === editingServerId ? updatedServer : server,
+        ),
+      );
+      setCommunityActionMessage(
+        `${updatedServer.name} was updated successfully.`,
+      );
+      modalFocusReturnRef.current = {
+        element: editCommunityTriggerRef.current,
+        shouldScroll: false,
+      };
+      setEditCommunityOpen(false);
+    } catch (error) {
+      handleRequestError(
+        error,
+        setCommunityActionError,
+        "Could not update this community. Please try again.",
+      );
+    } finally {
+      setSavingCommunityEdit(false);
+    }
+  }
+
+  function openDeleteCommunityDialog() {
+    if (!selectedServer) {
+      return;
+    }
+
+    setCommunityActionError("");
+    setCommunityActionMessage("");
+    setDeleteCommunityOpen(true);
+  }
+
+  const closeDeleteCommunityModal = useCallback(() => {
+    if (deletingCommunity) {
+      return;
+    }
+
+    modalFocusReturnRef.current = {
+      element: deleteCommunityTriggerRef.current,
+      shouldScroll: false,
+    };
+    setDeleteCommunityOpen(false);
+  }, [deletingCommunity]);
+
+  /**
+   * DELETE /servers/{id}/ has no response body. After any successful 2xx result,
+   * remove the selected item and clear its channel/message state. Selecting the
+   * first remaining server lets the existing channel effect load fresh channels.
+   */
+  async function handleDeleteCommunity() {
+    if (!selectedServer || deletingCommunity) {
+      return;
+    }
+
+    const serverToDelete = selectedServer;
+    const deletedServerId = String(serverToDelete.id);
+    setDeletingCommunity(true);
+    setCommunityActionError("");
+    setCommunityActionMessage("");
+
+    try {
+      await api.delete(`/servers/${deletedServerId}/`);
+
+      const remainingServers = servers.filter(
+        (server) => String(server.id) !== deletedServerId,
+      );
+      setServers((currentServers) =>
+        currentServers.filter(
+          (server) => String(server.id) !== deletedServerId,
+        ),
+      );
+      setChannels([]);
+      setSelectedChannelId("");
+      setMessages([]);
+      setSelectedServerId(
+        remainingServers[0] ? String(remainingServers[0].id) : "",
+      );
+      setCommunityActionMessage(
+        `${serverToDelete.name} was deleted successfully.`,
+      );
+      modalFocusReturnRef.current = {
+        element: deleteCommunityTriggerRef.current,
+        shouldScroll: false,
+      };
+      setDeleteCommunityOpen(false);
+    } catch (error) {
+      handleRequestError(
+        error,
+        setCommunityActionError,
+        `Could not delete ${serverToDelete.name}. Please try again.`,
+      );
+    } finally {
+      setDeletingCommunity(false);
+    }
   }
 
   /**
@@ -980,12 +1185,30 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
             </SectionHeading>
 
             {creationSuccess && (
-                <p
-                  role="status"
-                  className="mb-4 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-700"
-                >
-                  {creationSuccess}
-                </p>
+              <p
+                role="status"
+                className="mb-4 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-700"
+              >
+                {creationSuccess}
+              </p>
+            )}
+
+            {communityActionMessage && (
+              <p
+                role="status"
+                className="mb-4 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-700"
+              >
+                {communityActionMessage}
+              </p>
+            )}
+
+            {communityActionError && (
+              <p
+                role="alert"
+                className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+              >
+                {communityActionError}
+              </p>
             )}
 
             {serversLoading ? (
@@ -1010,6 +1233,8 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                     server={server}
                     selected={String(server.id) === selectedServerId}
                     onSelect={() => {
+                      setCommunityActionError("");
+                      setCommunityActionMessage("");
                       setChannels([]);
                       setSelectedChannelId("");
                       setMessages([]);
@@ -1391,6 +1616,28 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                       {new Date(selectedServer.created_at).toLocaleDateString()}
                     </p>
                   )}
+                  <div className="mt-4 flex gap-2 border-t border-neutral-100 pt-4">
+                    <button
+                      ref={editCommunityTriggerRef}
+                      type="button"
+                      onClick={openEditCommunityModal}
+                      disabled={savingCommunityEdit || deletingCommunity}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Pencil size={15} />
+                      Edit
+                    </button>
+                    <button
+                      ref={deleteCommunityTriggerRef}
+                      type="button"
+                      onClick={openDeleteCommunityDialog}
+                      disabled={savingCommunityEdit || deletingCommunity}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 size={15} />
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <p className="rounded-2xl border border-dashed border-neutral-300 p-4 text-sm leading-6 text-neutral-500">
@@ -1656,6 +1903,205 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                 </footer>
               </form>
             )}
+          </section>
+        </div>
+      )}
+
+      {editCommunityOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-neutral-950/60 p-3 backdrop-blur-[2px] sm:p-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeEditCommunityModal();
+            }
+          }}
+        >
+          <section
+            ref={editCommunityDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-community-title"
+            aria-describedby="edit-community-description"
+            aria-busy={savingCommunityEdit}
+            tabIndex={-1}
+            className="my-auto w-full max-w-xl overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl outline-none"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-5 sm:px-7">
+              <div>
+                <h2
+                  id="edit-community-title"
+                  className="text-xl font-semibold tracking-tight sm:text-2xl"
+                >
+                  Edit community
+                </h2>
+                <p
+                  id="edit-community-description"
+                  className="mt-2 text-sm leading-6 text-neutral-600"
+                >
+                  Update the name or description for this community.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditCommunityModal}
+                disabled={savingCommunityEdit}
+                aria-label="Close edit community dialog"
+                className="shrink-0 rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X size={19} />
+              </button>
+            </header>
+
+            <form
+              onSubmit={handleSaveCommunityEdit}
+              className="px-5 py-5 sm:px-7 sm:py-6"
+            >
+              <div className="space-y-4">
+                <label
+                  htmlFor="edit-community-name"
+                  className="block text-sm font-medium text-neutral-800"
+                >
+                  Community name <span aria-hidden="true">*</span>
+                  <input
+                    id="edit-community-name"
+                    data-modal-autofocus="true"
+                    required
+                    maxLength={100}
+                    value={editCommunityName}
+                    onChange={(event) => {
+                      setEditCommunityName(event.target.value);
+                      setCommunityActionError("");
+                    }}
+                    aria-invalid={Boolean(communityActionError)}
+                    aria-describedby={
+                      communityActionError
+                        ? "edit-community-error"
+                        : undefined
+                    }
+                    className="mt-2 w-full rounded-xl border border-neutral-300 px-3.5 py-3 text-sm text-neutral-950 outline-none transition focus:border-neutral-600 focus:ring-2 focus:ring-neutral-200"
+                  />
+                </label>
+                <label
+                  htmlFor="edit-community-description-input"
+                  className="block text-sm font-medium text-neutral-800"
+                >
+                  Description{" "}
+                  <span className="font-normal text-neutral-500">
+                    (optional)
+                  </span>
+                  <textarea
+                    id="edit-community-description-input"
+                    rows={3}
+                    value={editCommunityDescription}
+                    onChange={(event) =>
+                      setEditCommunityDescription(event.target.value)
+                    }
+                    className="mt-2 w-full resize-y rounded-xl border border-neutral-300 px-3.5 py-3 text-sm text-neutral-950 outline-none transition focus:border-neutral-600 focus:ring-2 focus:ring-neutral-200"
+                  />
+                </label>
+              </div>
+
+              {communityActionError && (
+                <p
+                  id="edit-community-error"
+                  role="alert"
+                  className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"
+                >
+                  {communityActionError}
+                </p>
+              )}
+
+              <footer className="mt-6 flex flex-col-reverse justify-between gap-3 border-t border-neutral-100 pt-4 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={closeEditCommunityModal}
+                  disabled={savingCommunityEdit}
+                  className="rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCommunityEdit}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-neutral-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {savingCommunityEdit ? "Saving..." : "Save changes"}
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {deleteCommunityOpen && selectedServer && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-neutral-950/60 p-3 backdrop-blur-[2px] sm:p-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeDeleteCommunityModal();
+            }
+          }}
+        >
+          <section
+            ref={deleteCommunityDialogRef}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-community-title"
+            aria-describedby="delete-community-description"
+            aria-busy={deletingCommunity}
+            tabIndex={-1}
+            className="my-auto w-full max-w-md overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl outline-none"
+          >
+            <div className="p-5 sm:p-6">
+              <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-700">
+                <Trash2 size={19} />
+              </span>
+              <h2
+                id="delete-community-title"
+                className="text-xl font-semibold tracking-tight"
+              >
+                Delete community?
+              </h2>
+              <p
+                id="delete-community-description"
+                className="mt-2 text-sm leading-6 text-neutral-600"
+              >
+                Are you sure you want to delete{" "}
+                <span className="font-semibold text-neutral-950">
+                  {selectedServer.name}
+                </span>
+                ? This action cannot be undone.
+              </p>
+
+              {communityActionError && (
+                <p
+                  role="alert"
+                  className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"
+                >
+                  {communityActionError}
+                </p>
+              )}
+
+              <footer className="mt-6 flex flex-col-reverse justify-end gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  data-modal-autofocus="true"
+                  onClick={closeDeleteCommunityModal}
+                  disabled={deletingCommunity}
+                  className="rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteCommunity}
+                  disabled={deletingCommunity}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {deletingCommunity ? "Deleting..." : "Delete community"}
+                </button>
+              </footer>
+            </div>
           </section>
         </div>
       )}
