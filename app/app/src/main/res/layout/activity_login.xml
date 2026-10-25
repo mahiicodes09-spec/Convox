@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/background"
+    tools:context=".LoginActivity">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:paddingHorizontal="24dp"
+            android:paddingTop="32dp"
+            android:paddingBottom="32dp">
+
+            <ImageView
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/logo"
+                android:contentDescription="Nexora Logo" />
+
+            <TextView
+                android:layout_width="104dp"
+                android:layout_height="36dp"
+                android:text="Convox"
+                android:textSize="30dp"
+                android:textStyle="bold"
+                android:textColor="#2563EB"
+                android:layout_marginTop="4dp" />
+
+            <TextView
+                android:layout_width="193dp"
+                android:layout_height="15dp"
+                android:text="Connect. Collaborate. Belong."
+                android:textSize="12dp"
+                android:textStyle="bold"
+                android:textColor="#475569"
+                android:layout_marginTop="2dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Welcome Back 👋"
+                android:textSize="28sp"
+                android:textStyle="bold"
+                android:textColor="#1E2235"
+                android:layout_marginTop="24dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Log in to continue to your community"
+                android:textSize="14sp"
+                android:textColor="#64748B"
+                android:layout_marginTop="4dp" />
+
+            <EditText
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="20dp"
+                android:background="@drawable/edit_text_background"
+                android:drawableStart="@drawable/email_img"
+                android:drawablePadding="12dp"
+                android:hint="Email address"
+                android:inputType="textEmailAddress"
+                android:paddingHorizontal="16dp"
+                android:textSize="14sp"
+                android:textColorHint="#94A3B8" />
+
+            <EditText
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/edit_text_background"
+                android:drawableStart="@drawable/lock_img"
+                android:drawablePadding="12dp"
+                android:hint="Password"
+                android:inputType="textPassword"
+                android:paddingHorizontal="16dp"
+                android:textSize="14sp"
+                android:textColorHint="#94A3B8" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="12dp">
+
+                <CheckBox
+                    android:id="@+id/cbRememberMe"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Remember me"
+                    android:textSize="13sp"
+                    android:textColor="#475569"
+                    android:buttonTint="#2563EB" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Forgot password?"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#2563EB" />
+            </LinearLayout>
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:layout_width="300dp"
+                android:layout_height="52dp"
+                android:layout_marginTop="20dp"
+                android:background="@drawable/gradient_button"
+                android:text="Login"
+                android:textAllCaps="false"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Or continue with"
+                android:textSize="12sp"
+                android:textColor="#94A3B8"
+                android:layout_marginTop="20dp" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp"
+                android:gravity="center">
+
+                <ImageView
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/google"
+                    android:layout_marginEnd="12dp"
+                    android:contentDescription="Google Login" />
+
+                <ImageView
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/apple"
+                    android:layout_marginHorizontal="6dp"
+                    android:contentDescription="Apple Login" />
+
+                <ImageView
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/discord"
+                    android:layout_marginStart="12dp"
+                    android:contentDescription="Discord Login" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="24dp"
+                android:gravity="center">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Don't have an account? "
+                    android:textSize="13sp"
+                    android:textColor="#64748B" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Sign Up"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#2563EB" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

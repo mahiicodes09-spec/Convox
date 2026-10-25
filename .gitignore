@@ -4,3 +4,9 @@
 /ml/model-2/SMSSpamCollection
 /ml/model-2/spam_dataset.parquet
 /ml/model-2/train.json
+
+# Python environments and cache
+.venv/
+__pycache__/
+*.py[cod]
+.env
