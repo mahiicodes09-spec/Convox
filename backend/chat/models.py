@@ -8,6 +8,7 @@ class Message(models.Model):
         ("unchecked", "Unchecked"),
         ("clean", "Clean"),
         ("flagged", "Flagged"),
+        ("reviewed", "Reviewed"),
     ]
     channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="messages")
     author = models.ForeignKey(
