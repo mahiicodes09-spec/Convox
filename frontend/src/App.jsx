@@ -12,6 +12,7 @@ import SignupPage from "./pages/SignupPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import DashboardPage from "./pages/DashboardPage";
+import CommunityWorkspacePage from "./pages/CommunityWorkspacePage";
 
 /**
  * Checks the saved access token before showing protected content.
@@ -103,6 +104,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               {(profile) => <DashboardPage profile={profile} />}
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard/communities/:serverId"
+          element={
+            <ProtectedRoute>
+              {(profile) => <CommunityWorkspacePage profile={profile} />}
             </ProtectedRoute>
           }
         />

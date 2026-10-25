@@ -1,0 +1,17 @@
+.community-workspace {
+  height: 100dvh;
+}
+
+.community-workspace__messages {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.community-workspace__overlay {
+  overflow-y: auto;
+}
+
+.community-workspace__dialog {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}

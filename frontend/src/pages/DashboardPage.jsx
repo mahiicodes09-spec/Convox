@@ -134,7 +134,7 @@ function SectionHeading({ eyebrow, title, children }) {
 
 /**
  * Each card displays only fields confirmed by the Server response schema.
- * Selecting a card changes the active community used by the channel and message views.
+ * Selecting a card opens its dedicated community workspace.
  */
 function CommunityCard({ server, selected, onSelect }) {
   return (
@@ -1420,19 +1420,10 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                     onSelect={() => {
                       setCommunityActionError("");
                       setCommunityActionMessage("");
-                      const nextServerId = String(server.id);
-                      if (nextServerId !== selectedServerId) {
-                        pendingCreatedChannelRef.current = null;
-                        setChannels([]);
-                        setSelectedChannelId("");
-                        setMessages([]);
-                        setChannelsError("");
-                        setMessagesError("");
-                        setChannelsLoading(false);
-                        setMessagesLoading(false);
-                        setSelectedServerId(nextServerId);
-                      }
                       setActiveNav("My communities");
+                      navigate(
+                        `/dashboard/communities/${encodeURIComponent(server.id)}`,
+                      );
                     }}
                   />
                 ))}
