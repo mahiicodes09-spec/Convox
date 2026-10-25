@@ -97,6 +97,13 @@ DATABASES = {
 REDIS_URL = config("REDIS_URL", default="")
 FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:5173")
 
+# AI moderation (ML team ki FastAPI service)
+ML_SERVICE_URL = config("ML_SERVICE_URL", default="")
+ML_TIMEOUT_SECONDS = config("ML_TIMEOUT_SECONDS", default=5, cast=int)
+ML_MODEL_VERSION = config("ML_MODEL_VERSION", default="convox-ml-api-0.1.0")
+TOXICITY_THRESHOLD = config("TOXICITY_THRESHOLD", default=0.7, cast=float)
+SPAM_THRESHOLD = config("SPAM_THRESHOLD", default=0.9, cast=float)
+
 if REDIS_URL:
     CACHES = {
         "default": {

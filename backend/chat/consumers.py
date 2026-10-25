@@ -2,6 +2,7 @@ from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from communities.models import Channel
 from .models import Message
+from .moderation import moderate
 from .serializers import MessageSerializer
 
 
@@ -45,5 +46,5 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     @database_sync_to_async
     def save_message(self, text):
-        message = Message.objects.create(channel_id=self.channel_id, author=self.user, content=text)
+        message = Message.objects.create(channel_id=self.channel_id, author=self.user, content=text, **moderate(text))
         return dict(MessageSerializer(message).data)

@@ -4,6 +4,11 @@ from communities.models import Channel
 
 
 class Message(models.Model):
+    STATUS_CHOICES = [
+        ("unchecked", "Unchecked"),
+        ("clean", "Clean"),
+        ("flagged", "Flagged"),
+    ]
     channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="messages")
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -13,6 +18,12 @@ class Message(models.Model):
     content = models.TextField(max_length=2000)
     created_at = models.DateTimeField(auto_now_add=True)
     edited_at = models.DateTimeField(null=True, blank=True)
+
+    # AI moderation ka result
+    moderation_status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="unchecked")
+    toxicity_label = models.CharField(max_length=50, blank=True)
+    toxicity_score = models.FloatField(null=True, blank=True)
+    model_version = models.CharField(max_length=50, blank=True)
 
     class Meta:
         ordering = ["created_at"]
