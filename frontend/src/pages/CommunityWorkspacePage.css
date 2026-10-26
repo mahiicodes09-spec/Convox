@@ -151,7 +151,9 @@
 }
 
 .community-workspace__community-info a,
+.community-workspace__community-info button,
 .community-workspace__channel-heading a,
+.community-workspace__channel-heading button,
 .community-workspace__account-link {
   display: inline-flex;
   margin-top: 9px;
@@ -159,14 +161,24 @@
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .community-workspace__community-info a:hover,
+.community-workspace__community-info button:hover,
 .community-workspace__channel-heading a:hover,
+.community-workspace__channel-heading button:hover,
 .community-workspace__account-link:hover {
   color: #fff;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.community-workspace__community-info button,
+.community-workspace__channel-heading button {
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .community-workspace__channel-sidebar [id="workspace-channel-navigation"] {

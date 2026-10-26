@@ -10,12 +10,14 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Check,
+  ClipboardList,
   Hash,
   Info,
   LoaderCircle,
   Menu,
   Pencil,
   Plus,
+  ShieldCheck,
   Settings2,
   Send,
   Trash2,
@@ -76,6 +78,9 @@ function canModifyMessage(message, profile) {
   );
 }
 
+const COMMUNITY_ROLES = ["owner", "admin", "moderator", "member"];
+const MODERATION_ACTIONS = ["dismiss", "warn", "remove"];
+
 /**
  * The route parameter is the active community's source of truth. The profile
  * arrives from App's existing protected route, while this page loads that
@@ -123,6 +128,27 @@ export default function CommunityWorkspacePage({ profile }) {
   const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
   const [mobileCommunitiesOpen, setMobileCommunitiesOpen] = useState(false);
   const [communityInfoOpen, setCommunityInfoOpen] = useState(false);
+  const [communityToolsOpen, setCommunityToolsOpen] = useState(false);
+  const [communityToolsTab, setCommunityToolsTab] = useState("members");
+  const [members, setMembers] = useState([]);
+  const [membersServerId, setMembersServerId] = useState("");
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState("");
+  const [membersSuccess, setMembersSuccess] = useState("");
+  const [savingMemberId, setSavingMemberId] = useState("");
+  const [moderationQueue, setModerationQueue] = useState([]);
+  const [moderationQueueServerId, setModerationQueueServerId] = useState("");
+  const [moderationQueueLoading, setModerationQueueLoading] = useState(false);
+  const [moderationQueueError, setModerationQueueError] = useState("");
+  const [moderationLogs, setModerationLogs] = useState([]);
+  const [moderationLogsServerId, setModerationLogsServerId] = useState("");
+  const [moderationLogsLoading, setModerationLogsLoading] = useState(false);
+  const [moderationLogsError, setModerationLogsError] = useState("");
+  const [moderationAction, setModerationAction] = useState({});
+  const [moderationReason, setModerationReason] = useState({});
+  const [moderationActionMessage, setModerationActionMessage] = useState("");
+  const [moderationActionError, setModerationActionError] = useState("");
+  const [moderationActionId, setModerationActionId] = useState("");
   const [welcomeActionMessage, setWelcomeActionMessage] = useState("");
   const selectedServerIdRef = useRef(serverId);
   const selectedChannelIdRef = useRef(selectedChannelId);
@@ -204,6 +230,116 @@ export default function CommunityWorkspacePage({ profile }) {
   const selectedServer = servers.find(
     (server) => String(server.id) === serverId,
   );
+  const visibleMembers = membersServerId === serverId ? members : [];
+  const visibleModerationQueue =
+    moderationQueueServerId === serverId ? moderationQueue : [];
+  const visibleModerationLogs =
+    moderationLogsServerId === serverId ? moderationLogs : [];
+  const currentMember = visibleMembers.find(
+    (member) => String(member.user_id) === String(profile?.id),
+  );
+  const isCommunityOwner =
+    selectedServer?.owner != null &&
+    String(selectedServer.owner) === String(profile?.id);
+  const currentRole = isCommunityOwner ? "owner" : currentMember?.role;
+  const canModerateCommunity =
+    isCommunityOwner ||
+    currentRole === "admin" ||
+    currentRole === "moderator";
+  const canManageMemberRoles = isCommunityOwner || currentRole === "admin";
+
+  useEffect(() => {
+    if (!communityToolsOpen || !serverId) {
+      return undefined;
+    }
+    if (communityToolsTab === "channels") {
+      return undefined;
+    }
+
+    let active = true;
+    const targetServerId = serverId;
+    const listConfig = {
+      members: {
+        loading: setMembersLoading,
+        clearError: setMembersError,
+        request: () =>
+          api.get(`/servers/${encodeURIComponent(targetServerId)}/members/`),
+        validate: Array.isArray,
+        setData: setMembers,
+        setServerId: setMembersServerId,
+        error: setMembersError,
+        invalidMessage: "The members response did not contain a list.",
+        fallback: "Could not load community members.",
+      },
+      queue: {
+        loading: setModerationQueueLoading,
+        clearError: setModerationQueueError,
+        request: () =>
+          api.get(
+            `/servers/${encodeURIComponent(targetServerId)}/moderation/queue/`,
+          ),
+        validate: Array.isArray,
+        setData: setModerationQueue,
+        setServerId: setModerationQueueServerId,
+        error: setModerationQueueError,
+        invalidMessage: "The moderation queue response did not contain a list.",
+        fallback: "Could not load the moderation queue.",
+      },
+      logs: {
+        loading: setModerationLogsLoading,
+        clearError: setModerationLogsError,
+        request: () =>
+          api.get(
+            `/servers/${encodeURIComponent(targetServerId)}/moderation/logs/`,
+          ),
+        validate: Array.isArray,
+        setData: setModerationLogs,
+        setServerId: setModerationLogsServerId,
+        error: setModerationLogsError,
+        invalidMessage: "The moderation logs response did not contain a list.",
+        fallback: "Could not load moderation logs.",
+      },
+    }[communityToolsTab];
+
+    listConfig.loading(true);
+    listConfig.clearError("");
+    listConfig.setData([]);
+    listConfig.setServerId("");
+
+    async function loadCommunityToolData() {
+      try {
+        const response = await listConfig.request();
+        if (!listConfig.validate(response.data)) {
+          throw new Error(listConfig.invalidMessage);
+        }
+        if (
+          active &&
+          selectedServerIdRef.current === targetServerId
+        ) {
+          listConfig.setData(response.data);
+          listConfig.setServerId(targetServerId);
+        }
+      } catch (error) {
+        if (
+          active &&
+          selectedServerIdRef.current === targetServerId
+        ) {
+          listConfig.error(
+            getApiErrorMessage(error, listConfig.fallback),
+          );
+        }
+      } finally {
+        if (active) {
+          listConfig.loading(false);
+        }
+      }
+    }
+
+    loadCommunityToolData();
+    return () => {
+      active = false;
+    };
+  }, [communityToolsOpen, communityToolsTab, serverId]);
 
   // This effect only displays channels returned by the selected server's
   // endpoint. Explicitly server-tagged items from a mismatched response are ignored.
@@ -502,6 +638,133 @@ export default function CommunityWorkspacePage({ profile }) {
     setMessageToDelete(null);
     setDeleteMessageError("");
     setMobileChannelsOpen(false);
+  }
+
+  function openCommunityTools(tab = "members") {
+    setCommunityToolsTab(tab);
+    setMembersSuccess("");
+    setModerationActionMessage("");
+    setModerationActionError("");
+    setCommunityInfoOpen(false);
+    setCommunityToolsOpen(true);
+  }
+
+  async function handleMemberRoleChange(member, role) {
+    const targetServerId = serverId;
+    const targetUserId = String(member.user_id);
+    if (
+      !canManageMemberRoles ||
+      !COMMUNITY_ROLES.includes(role) ||
+      !targetUserId ||
+      savingMemberId
+    ) {
+      return;
+    }
+
+    setSavingMemberId(targetUserId);
+    setMembersError("");
+    setMembersSuccess("");
+    try {
+      const response = await api.patch(
+        `/servers/${encodeURIComponent(targetServerId)}/members/${encodeURIComponent(targetUserId)}/`,
+        { role },
+      );
+      const updatedMember = response.data;
+      if (
+        String(updatedMember?.user_id) !== targetUserId ||
+        updatedMember?.role !== role
+      ) {
+        throw new Error("The role update response did not match the requested member and role.");
+      }
+      if (
+        selectedServerIdRef.current === targetServerId
+      ) {
+        if (
+          targetUserId === String(profile?.id) &&
+          !isCommunityOwner &&
+          role !== "admin" &&
+          role !== "moderator"
+        ) {
+          setCommunityToolsTab("members");
+        }
+        setMembers((currentMembers) =>
+          currentMembers.map((currentMember) =>
+            String(currentMember.user_id) === targetUserId
+              ? updatedMember
+              : currentMember,
+          ),
+        );
+        setMembersSuccess(
+          `${updatedMember.display_name}'s role was updated to ${role}.`,
+        );
+      }
+    } catch (error) {
+      if (selectedServerIdRef.current === targetServerId) {
+        setMembersError(
+          getApiErrorMessage(error, "Could not update this member's role."),
+        );
+      }
+    } finally {
+      setSavingMemberId("");
+    }
+  }
+
+  async function handleModerationAction(message) {
+    const messageId = String(message.id);
+    const targetServerId = serverId;
+    const action = moderationAction[messageId] || "dismiss";
+    const reason = (moderationReason[messageId] || "").trim();
+    if (
+      !canModerateCommunity ||
+      !MODERATION_ACTIONS.includes(action) ||
+      !reason ||
+      reason.length > 500 ||
+      moderationActionId
+    ) {
+      if (!reason) {
+        setModerationActionError("Enter a reason for this moderation action.");
+      } else if (reason.length > 500) {
+        setModerationActionError("The reason cannot exceed 500 characters.");
+      }
+      return;
+    }
+
+    setModerationActionId(messageId);
+    setModerationActionError("");
+    setModerationActionMessage("");
+    try {
+      const response = await api.post(
+        `/moderation/messages/${encodeURIComponent(messageId)}/action/`,
+        { action, reason },
+      );
+      if (selectedServerIdRef.current === targetServerId) {
+        setModerationQueue((currentQueue) =>
+          currentQueue.filter(
+            (queueMessage) => String(queueMessage.id) !== messageId,
+          ),
+        );
+        setModerationActionMessage("Moderation action completed.");
+        if (
+          moderationLogsServerId === targetServerId &&
+          response.data?.id != null
+        ) {
+          setModerationLogs((currentLogs) => [
+            response.data,
+            ...currentLogs.filter(
+              (log) => String(log.id) !== String(response.data.id),
+            ),
+          ]);
+        }
+      }
+    } catch (error) {
+      if (selectedServerIdRef.current === targetServerId) {
+        setModerationActionError(
+          getApiErrorMessage(error, "Could not complete this moderation action."),
+        );
+      }
+    } finally {
+      setModerationActionId("");
+    }
   }
 
   function openCreateChannel(event) {
@@ -1044,7 +1307,13 @@ export default function CommunityWorkspacePage({ profile }) {
             {selectedServer?.description?.trim() ||
               "Choose a channel to connect with your community."}
           </p>
-          <Link to="/dashboard#my-communities">Manage community</Link>
+          <button
+            type="button"
+            onClick={() => openCommunityTools("members")}
+            className="community-workspace__manage-link"
+          >
+            Manage community
+          </button>
         </div>
 
         <div
@@ -1057,12 +1326,13 @@ export default function CommunityWorkspacePage({ profile }) {
             <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">
               Text Channels
             </h2>
-            <Link
-              to="/dashboard#my-communities"
+            <button
+              type="button"
+              onClick={() => openCommunityTools("channels")}
               className="text-xs font-medium text-neutral-600 underline-offset-4 hover:text-neutral-950 hover:underline"
             >
               Manage
-            </Link>
+            </button>
           </div>
 
           {channelsLoading ? (
@@ -1319,12 +1589,13 @@ export default function CommunityWorkspacePage({ profile }) {
                             <h4>Personalize your community</h4>
                             <p>Update its name and description.</p>
                           </div>
-                          <Link
-                            to="/dashboard#my-communities"
+                          <button
+                            type="button"
+                            onClick={() => openCommunityTools("members")}
                             className="community-workspace__welcome-action"
                           >
                             Manage community
-                          </Link>
+                          </button>
                         </article>
                         <article className="community-workspace__welcome-card">
                           <span className="community-workspace__welcome-card-icon">
@@ -1896,15 +2167,471 @@ export default function CommunityWorkspacePage({ profile }) {
                   </p>
                 </div>
               )}
-              <footer className="border-t border-neutral-100 pt-4">
-                <Link
-                  to="/dashboard#my-communities"
-                  onClick={() => setCommunityInfoOpen(false)}
+              <footer className="flex flex-wrap gap-2 border-t border-neutral-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => openCommunityTools("members")}
+                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-3 py-2 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                >
+                  <UsersRound size={16} />
+                  Members & moderation
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openCommunityTools("members")}
                   className="community-workspace__welcome-action"
                 >
-                  Manage community settings
-                </Link>
+                  Manage community
+                </button>
               </footer>
+            </div>
+          </section>
+        </div>
+      )}
+      {communityToolsOpen && selectedServer && (
+        <div
+          className="community-workspace__overlay fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/60 p-3 backdrop-blur-[2px] sm:p-5"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setCommunityToolsOpen(false);
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="workspace-community-tools-title"
+            className="community-workspace__dialog flex max-h-[90dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-4">
+              <div className="min-w-0">
+                <h2
+                  id="workspace-community-tools-title"
+                  className="truncate text-lg font-semibold"
+                >
+                  {selectedServer.name}
+                </h2>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Manage channels, members, and moderation
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCommunityToolsOpen(false)}
+                aria-label="Close community tools"
+                className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <nav
+              aria-label="Community tools"
+              className="flex gap-2 overflow-x-auto border-b border-neutral-100 px-4 py-3"
+            >
+              <button
+                type="button"
+                aria-pressed={communityToolsTab === "members"}
+                onClick={() => setCommunityToolsTab("members")}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  communityToolsTab === "members"
+                    ? "bg-neutral-950 text-white"
+                    : "text-neutral-700 hover:bg-neutral-100"
+                }`}
+              >
+                <UsersRound size={16} />
+                Members
+              </button>
+              <button
+                type="button"
+                aria-pressed={communityToolsTab === "channels"}
+                onClick={() => setCommunityToolsTab("channels")}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  communityToolsTab === "channels"
+                    ? "bg-neutral-950 text-white"
+                    : "text-neutral-700 hover:bg-neutral-100"
+                }`}
+              >
+                <Hash size={16} />
+                Channels
+              </button>
+              {canModerateCommunity && (
+                <>
+                  <button
+                    type="button"
+                    aria-pressed={communityToolsTab === "queue"}
+                    onClick={() => {
+                      setCommunityToolsTab("queue");
+                      setMembersError("");
+                    }}
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                      communityToolsTab === "queue"
+                        ? "bg-neutral-950 text-white"
+                        : "text-neutral-700 hover:bg-neutral-100"
+                    }`}
+                  >
+                    <ShieldCheck size={16} />
+                    Moderation
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={communityToolsTab === "logs"}
+                    onClick={() => setCommunityToolsTab("logs")}
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                      communityToolsTab === "logs"
+                        ? "bg-neutral-950 text-white"
+                        : "text-neutral-700 hover:bg-neutral-100"
+                    }`}
+                  >
+                    <ClipboardList size={16} />
+                    Logs
+                  </button>
+                </>
+              )}
+            </nav>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+              {communityToolsTab === "channels" && (
+                <section aria-label="Channel management">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-neutral-900">
+                        Text channels
+                      </h3>
+                      <p className="mt-1 text-xs text-neutral-600">
+                        Select a channel to open its conversation.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        setCommunityToolsOpen(false);
+                        openCreateChannel(event);
+                      }}
+                      disabled={creatingChannel || channelsLoading}
+                      className="inline-flex items-center gap-2 rounded-lg bg-neutral-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Plus size={15} />
+                      Create channel
+                    </button>
+                  </div>
+                  {channelsLoading ? (
+                    <p role="status" className="flex items-center gap-2 py-6 text-sm text-neutral-600">
+                      <LoaderCircle size={16} className="animate-spin" />
+                      Loading channels...
+                    </p>
+                  ) : channelsError ? (
+                    <div className="py-4">
+                      <p role="alert" className="text-sm text-neutral-700">
+                        {channelsError}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setChannelRefreshKey((key) => key + 1)}
+                        className="mt-2 text-sm font-semibold underline underline-offset-2"
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  ) : availableChannels.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-neutral-600">
+                      No channels have been created in this community yet.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-neutral-200">
+                      {availableChannels.map((channel) => (
+                        <li key={channel.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              selectChannel(channel);
+                              setCommunityToolsOpen(false);
+                            }}
+                            className="flex w-full items-center justify-between gap-3 py-3 text-left hover:bg-neutral-100/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <Hash size={16} className="shrink-0" />
+                              <span className="truncate text-sm font-medium text-neutral-900">
+                                {channel.name}
+                              </span>
+                            </span>
+                            {String(channel.id) === selectedChannelId && (
+                              <span className="text-xs font-semibold text-neutral-600">
+                                Current
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              )}
+              {communityToolsTab === "members" && (
+                <section aria-label="Community members">
+                  {membersSuccess && (
+                    <p role="status" className="mb-3 rounded-lg border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm text-neutral-800">
+                      {membersSuccess}
+                    </p>
+                  )}
+                  {membersError && (
+                    <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                      {membersError}
+                    </p>
+                  )}
+                  {membersLoading ? (
+                    <p role="status" className="flex items-center gap-2 py-8 text-sm text-neutral-600">
+                      <LoaderCircle size={16} className="animate-spin" />
+                      Loading members...
+                    </p>
+                  ) : membersError ? null : visibleMembers.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-neutral-600">
+                      No community members were returned.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-neutral-200">
+                      {visibleMembers.map((member) => (
+                        <li
+                          key={member.user_id}
+                          className="flex flex-wrap items-center justify-between gap-3 py-3"
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            {member.avatar ? (
+                              <img
+                                src={member.avatar}
+                                alt=""
+                                className="h-9 w-9 rounded-full object-cover"
+                              />
+                            ) : (
+                              <span
+                                aria-hidden="true"
+                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-sm font-semibold text-neutral-700"
+                              >
+                                {member.display_name?.trim()?.[0]?.toUpperCase() || "?"}
+                              </span>
+                            )}
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-semibold text-neutral-900">
+                                {member.display_name}
+                              </span>
+                              <span className="block text-xs text-neutral-500">
+                                {member.role || "Member"}
+                              </span>
+                            </span>
+                          </div>
+                          {canManageMemberRoles && (
+                            <label className="flex items-center gap-2 text-xs font-medium text-neutral-600">
+                              <span className="sr-only">
+                                Role for {member.display_name}
+                              </span>
+                              <select
+                                value={member.role || "member"}
+                                disabled={savingMemberId === String(member.user_id)}
+                                onChange={(event) =>
+                                  handleMemberRoleChange(member, event.target.value)
+                                }
+                                className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:opacity-60"
+                              >
+                                {COMMUNITY_ROLES.map((role) => (
+                                  <option key={role} value={role}>
+                                    {role}
+                                  </option>
+                                ))}
+                              </select>
+                              {savingMemberId === String(member.user_id) && (
+                                <LoaderCircle
+                                  size={15}
+                                  aria-label="Saving role"
+                                  className="animate-spin"
+                                />
+                              )}
+                            </label>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {!membersLoading && !membersError && !canManageMemberRoles && (
+                    <p className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs leading-5 text-neutral-600">
+                      Role changes are available to community owners and admins.
+                    </p>
+                  )}
+                </section>
+              )}
+
+              {communityToolsTab === "queue" && canModerateCommunity && (
+                <section aria-label="Moderation queue">
+                  {moderationActionMessage && (
+                    <p role="status" className="mb-3 rounded-lg border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm text-neutral-800">
+                      {moderationActionMessage}
+                    </p>
+                  )}
+                  {moderationActionError && (
+                    <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                      {moderationActionError}
+                    </p>
+                  )}
+                  {moderationQueueError && (
+                    <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                      {moderationQueueError}
+                    </p>
+                  )}
+                  {moderationQueueLoading ? (
+                    <p role="status" className="flex items-center gap-2 py-8 text-sm text-neutral-600">
+                      <LoaderCircle size={16} className="animate-spin" />
+                      Loading moderation queue...
+                    </p>
+                  ) : moderationQueueError ? null : visibleModerationQueue.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-neutral-600">
+                      The moderation queue is empty.
+                    </p>
+                  ) : (
+                    <ul className="space-y-3">
+                      {visibleModerationQueue.map((message) => (
+                        <li
+                          key={message.id}
+                          className="rounded-xl border border-neutral-200 bg-neutral-50 p-4"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-neutral-900">
+                                {message.author?.display_name || "Community member"}
+                                <span className="font-normal text-neutral-600">
+                                  {" "}in #{message.channel_name}
+                                </span>
+                              </p>
+                              <p className="mt-1 text-xs text-neutral-500">
+                                {message.created_at
+                                  ? new Date(message.created_at).toLocaleString()
+                                  : ""}
+                                {message.toxicity_label
+                                  ? ` · ${message.toxicity_label}`
+                                  : ""}
+                              </p>
+                            </div>
+                            {typeof message.toxicity_score === "number" && (
+                              <span className="rounded-full border border-neutral-300 px-2 py-1 text-xs text-neutral-600">
+                                Score {message.toxicity_score}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-sm leading-6 text-neutral-800">
+                            {message.content}
+                          </p>
+                          {canModerateCommunity ? (
+                            <div className="mt-3 grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)_auto]">
+                              <label className="sr-only" htmlFor={`moderation-action-${message.id}`}>
+                                Action for message {message.id}
+                              </label>
+                              <select
+                                id={`moderation-action-${message.id}`}
+                                value={moderationAction[String(message.id)] || "dismiss"}
+                                onChange={(event) =>
+                                  setModerationAction((current) => ({
+                                    ...current,
+                                    [String(message.id)]: event.target.value,
+                                  }))
+                                }
+                                className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                              >
+                                {MODERATION_ACTIONS.map((action) => (
+                                  <option key={action} value={action}>
+                                    {action}
+                                  </option>
+                                ))}
+                              </select>
+                              <label className="sr-only" htmlFor={`moderation-reason-${message.id}`}>
+                                Reason for action on message {message.id}
+                              </label>
+                              <input
+                                id={`moderation-reason-${message.id}`}
+                                type="text"
+                                maxLength={500}
+                                value={moderationReason[String(message.id)] || ""}
+                                onChange={(event) =>
+                                  setModerationReason((current) => ({
+                                    ...current,
+                                    [String(message.id)]: event.target.value,
+                                  }))
+                                }
+                                placeholder="Reason (required)"
+                                className="min-w-0 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-800 placeholder:text-neutral-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleModerationAction(message)}
+                                disabled={Boolean(moderationActionId)}
+                                className="inline-flex items-center justify-center gap-2 rounded-lg bg-neutral-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {moderationActionId === String(message.id) ? (
+                                  <LoaderCircle size={15} className="animate-spin" />
+                                ) : (
+                                  <Check size={15} />
+                                )}
+                                Apply
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-xs text-neutral-600">
+                              Moderation actions are available to owners, admins, and moderators.
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              )}
+
+              {communityToolsTab === "logs" && canModerateCommunity && (
+                <section aria-label="Moderation logs">
+                  {moderationLogsError && (
+                    <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                      {moderationLogsError}
+                    </p>
+                  )}
+                  {moderationLogsLoading ? (
+                    <p role="status" className="flex items-center gap-2 py-8 text-sm text-neutral-600">
+                      <LoaderCircle size={16} className="animate-spin" />
+                      Loading moderation logs...
+                    </p>
+                  ) : moderationLogsError ? null : visibleModerationLogs.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-neutral-600">
+                      No moderation actions have been recorded.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-neutral-200">
+                      {visibleModerationLogs.map((log) => (
+                        <li key={log.id} className="py-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold capitalize text-neutral-900">
+                              {log.action}
+                              {log.target_user?.display_name
+                                ? ` · ${log.target_user.display_name}`
+                                : ""}
+                            </p>
+                            <time className="text-xs text-neutral-500">
+                              {log.created_at
+                                ? new Date(log.created_at).toLocaleString()
+                                : ""}
+                            </time>
+                          </div>
+                          <p className="mt-1 text-sm leading-5 text-neutral-700">
+                            {log.reason}
+                          </p>
+                          <p className="mt-1 text-xs text-neutral-500">
+                            By {log.actor?.display_name || "Moderator"}
+                            {log.message_id != null
+                              ? ` · Message ${log.message_id}`
+                              : ""}
+                            {log.toxicity_label
+                              ? ` · ${log.toxicity_label}`
+                              : ""}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              )}
             </div>
           </section>
         </div>
