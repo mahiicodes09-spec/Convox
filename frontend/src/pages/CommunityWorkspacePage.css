@@ -1,14 +1,14 @@
 .community-workspace {
-  --workspace-rail: #111111;
-  --workspace-sidebar: #202020;
-  --workspace-sidebar-hover: #353535;
-  --workspace-chat: #303030;
-  --workspace-panel: #252525;
-  --workspace-input: #3a3a3a;
-  --workspace-border: #292929;
-  --workspace-text: #f1f1f1;
-  --workspace-muted: #c0c0c0;
-  --workspace-subtle: #a6a6a6;
+  --workspace-rail: var(--sc-surface-muted);
+  --workspace-sidebar: var(--sc-surface);
+  --workspace-sidebar-hover: var(--sc-surface-muted);
+  --workspace-chat: var(--sc-background);
+  --workspace-panel: var(--sc-surface);
+  --workspace-input: var(--sc-input);
+  --workspace-border: var(--sc-border);
+  --workspace-text: var(--sc-text);
+  --workspace-muted: var(--sc-text-muted);
+  --workspace-subtle: var(--sc-text-muted);
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -696,6 +696,202 @@
 
 .community-workspace [role="status"] {
   color: var(--workspace-muted);
+}
+
+:root[data-theme="light"] .community-workspace {
+  --workspace-rail: #111111;
+  --workspace-sidebar: var(--sc-surface);
+  --workspace-sidebar-hover: var(--sc-surface-muted);
+  --workspace-chat: var(--sc-background);
+  --workspace-panel: var(--sc-surface);
+  --workspace-input: var(--sc-surface);
+  --workspace-border: var(--sc-border);
+  --workspace-text: var(--sc-text);
+  --workspace-muted: var(--sc-text-muted);
+  --workspace-subtle: var(--sc-text-muted);
+}
+
+:root[data-theme="light"] .community-workspace__channel-sidebar,
+:root[data-theme="light"] .community-workspace__community-header,
+:root[data-theme="light"] .community-workspace__community-info,
+:root[data-theme="light"] .community-workspace__channel-sidebar [id="workspace-channel-navigation"] {
+  color: var(--sc-text);
+  background-color: var(--sc-surface);
+  border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace__community-header h1,
+:root[data-theme="light"] .community-workspace__channel-heading h2,
+:root[data-theme="light"] .community-workspace__channel-button[aria-current="page"] {
+  color: var(--sc-text);
+}
+
+:root[data-theme="light"] .community-workspace__community-header p,
+:root[data-theme="light"] .community-workspace__community-description,
+:root[data-theme="light"] .community-workspace__channel-heading h2,
+:root[data-theme="light"] .community-workspace__profile-panel .text-neutral-500,
+:root[data-theme="light"] .community-workspace__profile-panel .text-xs {
+  color: var(--sc-text-muted);
+}
+
+:root[data-theme="light"] .community-workspace__channel-button[aria-current="page"] {
+  background-color: var(--sc-surface-muted);
+}
+
+:root[data-theme="light"] .community-workspace__chat-header,
+:root[data-theme="light"] .community-workspace main,
+:root[data-theme="light"] .community-workspace__messages,
+:root[data-theme="light"] .community-workspace__composer {
+  color: var(--sc-text);
+  background-color: var(--sc-background);
+  border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace__chat-header h2,
+:root[data-theme="light"] .community-workspace__welcome-content > h3,
+:root[data-theme="light"] .community-workspace__welcome-card h4,
+:root[data-theme="light"] .community-workspace__author {
+  color: var(--sc-text);
+}
+
+:root[data-theme="light"] .community-workspace__chat-header p,
+:root[data-theme="light"] .community-workspace__timestamp,
+:root[data-theme="light"] .community-workspace__welcome-eyebrow,
+:root[data-theme="light"] .community-workspace__welcome-description,
+:root[data-theme="light"] .community-workspace__welcome-card p,
+:root[data-theme="light"] .community-workspace__message p,
+:root[data-theme="light"] .community-workspace__messages [role="status"] {
+  color: var(--sc-text-muted);
+}
+
+:root[data-theme="light"] .community-workspace__welcome-mark,
+:root[data-theme="light"] .community-workspace__welcome-card,
+:root[data-theme="light"] .community-workspace__welcome-card-icon,
+:root[data-theme="light"] .community-workspace__welcome-action,
+:root[data-theme="light"] .community-workspace__history-control button {
+  color: var(--sc-text);
+  background-color: var(--sc-surface);
+  border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace__welcome-card:hover,
+:root[data-theme="light"] .community-workspace__welcome-action:hover,
+:root[data-theme="light"] .community-workspace__history-control button:hover:not(:disabled),
+:root[data-theme="light"] .community-workspace__message:hover {
+  background-color: var(--sc-surface-muted);
+  border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace__message button:hover {
+  color: var(--sc-text);
+  background-color: var(--sc-surface-muted);
+}
+
+:root[data-theme="light"] .community-workspace__composer-input,
+:root[data-theme="light"] .community-workspace__dialog input,
+:root[data-theme="light"] .community-workspace__dialog textarea,
+:root[data-theme="light"] .community-workspace__dialog select {
+  color: var(--sc-text);
+  background-color: var(--sc-input);
+  border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace__send-button,
+:root[data-theme="light"] .community-workspace__dialog button[class*="bg-neutral-950"],
+:root[data-theme="light"] .community-workspace button[class*="bg-red-700"] {
+  color: var(--sc-accent-contrast);
+  background-color: var(--sc-primary);
+}
+
+:root[data-theme="light"] .community-workspace__send-button:hover:not(:disabled),
+:root[data-theme="light"] .community-workspace__dialog button[class*="bg-neutral-950"]:hover,
+:root[data-theme="light"] .community-workspace button[class*="bg-red-700"]:hover {
+  background-color: var(--sc-primary-hover);
+}
+
+:root[data-theme="light"] .community-workspace__dialog,
+:root[data-theme="light"] .community-workspace__success,
+:root[data-theme="light"] .community-workspace [class*="bg-neutral-100"],
+:root[data-theme="light"] .community-workspace [class*="bg-neutral-50"] {
+  color: var(--sc-text);
+  background-color: var(--sc-surface);
+  border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace__dialog header,
+:root[data-theme="light"] .community-workspace__dialog footer {
+  border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace [class*="text-neutral-950"],
+:root[data-theme="light"] .community-workspace [class*="text-neutral-900"],
+:root[data-theme="light"] .community-workspace [class*="text-neutral-800"] {
+  color: var(--sc-text);
+}
+
+:root[data-theme="light"] .community-workspace [class*="text-neutral-700"],
+:root[data-theme="light"] .community-workspace [class*="text-neutral-600"],
+:root[data-theme="light"] .community-workspace [class*="text-neutral-500"] {
+  color: var(--sc-text-muted);
+}
+
+:root[data-theme="light"] .community-workspace [class*="text-red-"] {
+  color: var(--sc-danger);
+}
+
+:root[data-theme="light"] .community-workspace [class*="bg-red-"] {
+  color: var(--sc-danger);
+  background-color: var(--sc-danger-bg);
+}
+
+:root[data-theme="light"] .community-workspace [class*="border-red-"] {
+  border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace [class*="bg-green-"] {
+  color: var(--sc-success);
+  background-color: var(--sc-success-bg);
+}
+
+:root[data-theme="light"] .community-workspace [class*="border-green-"] {
+  border-color: var(--sc-border);
+}
+
+:root[data-theme="dark"] .community-workspace {
+  --workspace-rail: #111111;
+  --workspace-sidebar: #202020;
+  --workspace-sidebar-hover: #353535;
+  --workspace-chat: #303030;
+  --workspace-panel: #252525;
+  --workspace-input: #3a3a3a;
+  --workspace-border: #292929;
+  --workspace-text: #f1f1f1;
+  --workspace-muted: #c0c0c0;
+  --workspace-subtle: #a6a6a6;
+}
+
+:root[data-theme="dark"] .community-workspace [class~="bg-white"],
+:root[data-theme="dark"] .community-workspace [class~="bg-neutral-50"],
+:root[data-theme="dark"] .community-workspace [class~="bg-neutral-100"] {
+  color: var(--sc-text);
+  background-color: var(--sc-surface);
+}
+
+:root[data-theme="dark"] .community-workspace [class~="bg-neutral-950"] {
+  color: var(--sc-accent-contrast);
+  background-color: var(--sc-primary);
+}
+
+:root[data-theme="dark"] .community-workspace [class~="text-neutral-950"],
+:root[data-theme="dark"] .community-workspace [class~="text-neutral-900"],
+:root[data-theme="dark"] .community-workspace [class~="text-neutral-800"] {
+  color: var(--sc-text);
+}
+
+:root[data-theme="dark"] .community-workspace [class~="text-neutral-700"],
+:root[data-theme="dark"] .community-workspace [class~="text-neutral-600"],
+:root[data-theme="dark"] .community-workspace [class~="text-neutral-500"] {
+  color: var(--sc-text-muted);
 }
 
 @media (min-width: 1024px) {

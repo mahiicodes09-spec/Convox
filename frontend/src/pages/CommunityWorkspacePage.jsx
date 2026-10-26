@@ -78,7 +78,7 @@ function canModifyMessage(message, profile) {
   );
 }
 
-const COMMUNITY_ROLES = ["owner", "admin", "moderator", "member"];
+const ASSIGNABLE_MEMBER_ROLES = ["admin", "moderator", "member"];
 const MODERATION_ACTIONS = ["dismiss", "warn", "remove"];
 
 /**
@@ -246,13 +246,19 @@ export default function CommunityWorkspacePage({ profile }) {
     isCommunityOwner ||
     currentRole === "admin" ||
     currentRole === "moderator";
-  const canManageMemberRoles = isCommunityOwner || currentRole === "admin";
+  const canManageMemberRoles = isCommunityOwner;
 
   useEffect(() => {
     if (!communityToolsOpen || !serverId) {
       return undefined;
     }
     if (communityToolsTab === "channels") {
+      return undefined;
+    }
+    if (
+      (communityToolsTab === "queue" || communityToolsTab === "logs") &&
+      !canModerateCommunity
+    ) {
       return undefined;
     }
 
@@ -339,7 +345,12 @@ export default function CommunityWorkspacePage({ profile }) {
     return () => {
       active = false;
     };
-  }, [communityToolsOpen, communityToolsTab, serverId]);
+  }, [
+    canModerateCommunity,
+    communityToolsOpen,
+    communityToolsTab,
+    serverId,
+  ]);
 
   // This effect only displays channels returned by the selected server's
   // endpoint. Explicitly server-tagged items from a mismatched response are ignored.
@@ -654,7 +665,9 @@ export default function CommunityWorkspacePage({ profile }) {
     const targetUserId = String(member.user_id);
     if (
       !canManageMemberRoles ||
-      !COMMUNITY_ROLES.includes(role) ||
+      !ASSIGNABLE_MEMBER_ROLES.includes(role) ||
+      member.role === "owner" ||
+      String(selectedServer?.owner) === targetUserId ||
       !targetUserId ||
       savingMemberId
     ) {
@@ -679,14 +692,6 @@ export default function CommunityWorkspacePage({ profile }) {
       if (
         selectedServerIdRef.current === targetServerId
       ) {
-        if (
-          targetUserId === String(profile?.id) &&
-          !isCommunityOwner &&
-          role !== "admin" &&
-          role !== "moderator"
-        ) {
-          setCommunityToolsTab("members");
-        }
         setMembers((currentMembers) =>
           currentMembers.map((currentMember) =>
             String(currentMember.user_id) === targetUserId
@@ -2417,7 +2422,10 @@ export default function CommunityWorkspacePage({ profile }) {
                               </span>
                             </span>
                           </div>
-                          {canManageMemberRoles && (
+                          {canManageMemberRoles &&
+                          member.role !== "owner" &&
+                          String(selectedServer?.owner) !==
+                            String(member.user_id) ? (
                             <label className="flex items-center gap-2 text-xs font-medium text-neutral-600">
                               <span className="sr-only">
                                 Role for {member.display_name}
@@ -2430,7 +2438,7 @@ export default function CommunityWorkspacePage({ profile }) {
                                 }
                                 className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:opacity-60"
                               >
-                                {COMMUNITY_ROLES.map((role) => (
+                                {ASSIGNABLE_MEMBER_ROLES.map((role) => (
                                   <option key={role} value={role}>
                                     {role}
                                   </option>
@@ -2444,14 +2452,20 @@ export default function CommunityWorkspacePage({ profile }) {
                                 />
                               )}
                             </label>
-                          )}
+                          ) : member.role === "owner" ||
+                            String(selectedServer?.owner) ===
+                              String(member.user_id) ? (
+                            <span className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs font-semibold text-neutral-700">
+                              Owner
+                            </span>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
                   )}
                   {!membersLoading && !membersError && !canManageMemberRoles && (
                     <p className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs leading-5 text-neutral-600">
-                      Role changes are available to community owners and admins.
+                      Only the community owner can change member roles.
                     </p>
                   )}
                 </section>

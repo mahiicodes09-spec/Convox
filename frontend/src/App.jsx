@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Moon, Sun } from "lucide-react";
 import {
   BrowserRouter,
   Navigate,
@@ -89,6 +90,16 @@ function ProtectedRoute({ children }) {
 }
 
 export default function App() {
+  const [theme, setTheme] = useState(
+    () => localStorage.getItem("theme") || "light",
+  );
+
+  useEffect(() => {
+    const selectedTheme = theme === "dark" ? "dark" : "light";
+    document.documentElement.dataset.theme = selectedTheme;
+    localStorage.setItem("theme", selectedTheme);
+  }, [theme]);
+
   return (
     <BrowserRouter>
       <Routes>
@@ -118,6 +129,20 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
+      <button
+        type="button"
+        className="theme-toggle"
+        onClick={() =>
+          setTheme((currentTheme) =>
+            currentTheme === "dark" ? "light" : "dark",
+          )
+        }
+        aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+        title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      >
+        {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+        <span>{theme === "dark" ? "Light" : "Dark"}</span>
+      </button>
     </BrowserRouter>
   );
 }
