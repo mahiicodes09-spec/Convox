@@ -1,11 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bell,
   BookOpen,
   Check,
-  ChevronRight,
   ChevronDown,
+  ChevronRight,
   CircleAlert,
   Code2,
   Compass,
@@ -15,10 +21,12 @@ import {
   LayoutDashboard,
   LogOut,
   MessageCircle,
+  Pencil,
   Plus,
   Search,
   Send,
   Settings,
+  Trash2,
   UsersRound,
   X,
 } from "lucide-react";
@@ -68,6 +76,42 @@ const communityTemplates = [
 function getApiErrorMessage(error, fallback) {
   const detail = error.response?.data?.detail || error.response?.data?.message;
   return typeof detail === "string" ? detail : error.message || fallback;
+}
+
+function getChannelServerId(channel) {
+  const server = channel?.server ?? channel?.server_id;
+  if (server && typeof server === "object") {
+    return server.id == null ? null : String(server.id);
+  }
+  return server == null ? null : String(server);
+}
+
+function getNextCursor(next) {
+  if (!next) {
+    return "";
+  }
+  const cursor = new URL(next, window.location.origin).searchParams.get(
+    "cursor",
+  );
+  if (!cursor) {
+    throw new Error("The message pagination link did not contain a cursor.");
+  }
+  return cursor;
+}
+
+function mergeMessagesChronologically(existing, incoming) {
+  const messagesById = new Map(
+    existing.map((message) => [String(message.id), message]),
+  );
+  incoming.forEach((message) => {
+    if (!messagesById.has(String(message.id))) {
+      messagesById.set(String(message.id), message);
+    }
+  });
+  return [...messagesById.values()].sort(
+    (left, right) =>
+      Date.parse(left.created_at) - Date.parse(right.created_at),
+  );
 }
 
 /**
@@ -124,7 +168,7 @@ function SectionHeading({ eyebrow, title, children }) {
 
 /**
  * Each card displays only fields confirmed by the Server response schema.
- * Selecting a card changes the active community used by the channel and message views.
+ * Selecting a card opens its dedicated community workspace.
  */
 function CommunityCard({ server, selected, onSelect }) {
   return (
@@ -194,14 +238,32 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [servers, setServers] = useState([]);
   const [selectedServerId, setSelectedServerId] = useState("");
   const [channels, setChannels] = useState([]);
+  // Incrementing this value re-runs the existing channel-fetching effect after
+  // a successful channel creation without introducing a second GET request path.
+  const [channelRefreshKey, setChannelRefreshKey] = useState(0);
   const [selectedChannelId, setSelectedChannelId] = useState("");
+  const selectedChannelIdRef = useRef(selectedChannelId);
+  const pendingCreatedChannelRef = useRef(null);
   const [messages, setMessages] = useState([]);
+  const [messagesServerId, setMessagesServerId] = useState("");
+  const [messagesChannelId, setMessagesChannelId] = useState("");
+  const [nextMessageCursor, setNextMessageCursor] = useState("");
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessagesError, setOlderMessagesError] = useState("");
+  const olderMessagesRequestRef = useRef(null);
+  const olderMessagesRequestIdRef = useRef(0);
+  const messageSelectionVersionRef = useRef(0);
   const [serversLoading, setServersLoading] = useState(true);
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [serversError, setServersError] = useState("");
   const [channelsError, setChannelsError] = useState("");
   const [messagesError, setMessagesError] = useState("");
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [newChannelName, setNewChannelName] = useState("");
+  const [creatingChannel, setCreatingChannel] = useState(false);
+  const [createChannelError, setCreateChannelError] = useState("");
+  const [channelActionMessage, setChannelActionMessage] = useState("");
 
   // These form states hold only user-entered values. Submitting them sends the
   // exact request fields documented by Swagger for the matching API operation.
@@ -215,6 +277,17 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [communityDescription, setCommunityDescription] = useState("");
   const [createError, setCreateError] = useState("");
   const [creating, setCreating] = useState(false);
+  // These states track the selected server being edited and whether its
+  // confirmation, save, or delete operation is currently active.
+  const [editCommunityOpen, setEditCommunityOpen] = useState(false);
+  const [editingServerId, setEditingServerId] = useState("");
+  const [editCommunityName, setEditCommunityName] = useState("");
+  const [editCommunityDescription, setEditCommunityDescription] = useState("");
+  const [savingCommunityEdit, setSavingCommunityEdit] = useState(false);
+  const [deleteCommunityOpen, setDeleteCommunityOpen] = useState(false);
+  const [deletingCommunity, setDeletingCommunity] = useState(false);
+  const [communityActionError, setCommunityActionError] = useState("");
+  const [communityActionMessage, setCommunityActionMessage] = useState("");
   // The visibility and step state control the two-screen creation dialog;
   // creationSuccess shows the server-confirmed result after the dialog closes.
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -222,6 +295,13 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [creationSuccess, setCreationSuccess] = useState("");
   const createModalRef = useRef(null);
   const createTriggerRef = useRef(null);
+  const createChannelDialogRef = useRef(null);
+  const createChannelTriggerRef = useRef(null);
+  const selectedServerIdRef = useRef(selectedServerId);
+  const editCommunityDialogRef = useRef(null);
+  const editCommunityTriggerRef = useRef(null);
+  const deleteCommunityDialogRef = useRef(null);
+  const deleteCommunityTriggerRef = useRef(null);
   const modalFocusReturnRef = useRef(null);
   const [messageDraft, setMessageDraft] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -251,6 +331,13 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     [navigate],
   );
 
+  // Keep refs current for asynchronous handlers and fetch effects without
+  // reading or changing ref values during rendering.
+  useLayoutEffect(() => {
+    selectedServerIdRef.current = selectedServerId;
+    selectedChannelIdRef.current = selectedChannelId;
+  }, [selectedChannelId, selectedServerId]);
+
   // GET /servers/ returns the signed-in user's server list as an array. The
   // shared Axios client supplies the Bearer token from localStorage automatically.
   useEffect(() => {
@@ -269,8 +356,17 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
         if (active) {
           setServers(response.data);
           setChannels([]);
+          setChannelsLoading(false);
+          setChannelsError("");
           setSelectedChannelId("");
           setMessages([]);
+          setMessagesServerId("");
+          setMessagesChannelId("");
+          setNextMessageCursor("");
+          setOlderMessagesError("");
+          setLoadingOlderMessages(false);
+          setMessagesError("");
+          setMessagesLoading(false);
           setSelectedServerId((currentId) => {
             const stillAvailable = response.data.some(
               (server) => String(server.id) === currentId,
@@ -311,11 +407,22 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     }
 
     let active = true;
+    const previouslySelectedChannelId = selectedChannelIdRef.current;
+    messageSelectionVersionRef.current += 1;
 
     async function loadChannels() {
       setChannelsLoading(true);
       setChannelsError("");
+      setChannels([]);
       setMessages([]);
+      setMessagesServerId("");
+      setMessagesChannelId("");
+      setNextMessageCursor("");
+      setOlderMessagesError("");
+      setLoadingOlderMessages(false);
+      olderMessagesRequestRef.current = null;
+      setMessagesError("");
+      setMessagesLoading(false);
       setSelectedChannelId("");
 
       try {
@@ -326,10 +433,42 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
           throw new Error("The channels response did not contain a list.");
         }
 
+        const serverChannels = response.data.filter((channel) => {
+          if (
+            !channel ||
+            (typeof channel.id !== "string" &&
+              typeof channel.id !== "number") ||
+            !String(channel.id).trim()
+          ) {
+            return false;
+          }
+
+          const channelServerId = getChannelServerId(channel);
+          return channelServerId == null || channelServerId === selectedServerId;
+        });
+
         if (active) {
-          setChannels(response.data);
+          setChannels(serverChannels);
+
+          const pendingCreatedChannel = pendingCreatedChannelRef.current;
+          const createdChannel =
+            pendingCreatedChannel?.serverId === selectedServerId
+              ? serverChannels.find(
+                  (channel) =>
+                    String(channel.id) === pendingCreatedChannel.channelId,
+                )
+              : null;
+          pendingCreatedChannelRef.current = null;
+
+          const stillAvailableChannel = serverChannels.find(
+            (channel) =>
+              String(channel.id) === previouslySelectedChannelId,
+          );
+          const channelToSelect =
+            createdChannel || stillAvailableChannel || serverChannels[0];
+
           setSelectedChannelId(
-            response.data[0] ? String(response.data[0].id) : "",
+            channelToSelect ? String(channelToSelect.id) : "",
           );
         }
       } catch (error) {
@@ -351,35 +490,59 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     return () => {
       active = false;
     };
-  }, [handleRequestError, selectedServerId]);
+  }, [channelRefreshKey, handleRequestError, selectedServerId]);
 
   // GET /channels/{id}/messages/ returns a cursor-paginated object with a
   // `results` array. This first dashboard view loads the first page only.
   useEffect(() => {
-    if (!selectedChannelId) {
+    if (!selectedChannelId || !selectedServerId) {
       return undefined;
     }
 
     let active = true;
+    const targetServerId = selectedServerId;
+    const targetChannelId = selectedChannelId;
+    const requestVersion = ++messageSelectionVersionRef.current;
 
     async function loadMessages() {
       setMessagesLoading(true);
       setMessagesError("");
+      setMessages([]);
+      setMessagesServerId("");
+      setMessagesChannelId("");
+      setNextMessageCursor("");
+      setOlderMessagesError("");
+      setLoadingOlderMessages(false);
+      olderMessagesRequestRef.current = null;
 
       try {
         const response = await api.get(
-          `/channels/${selectedChannelId}/messages/`,
+          `/channels/${targetChannelId}/messages/`,
         );
         const page = response.data;
         if (!Array.isArray(page?.results)) {
           throw new Error("The messages response did not contain a results list.");
         }
+        const nextCursor = getNextCursor(page.next);
 
-        if (active) {
-          setMessages(page.results);
+        if (
+          active &&
+          messageSelectionVersionRef.current === requestVersion &&
+          selectedServerIdRef.current === targetServerId &&
+          selectedChannelIdRef.current === targetChannelId
+        ) {
+          setMessages(mergeMessagesChronologically([], page.results));
+          setMessagesServerId(targetServerId);
+          setMessagesChannelId(targetChannelId);
+          setNextMessageCursor(nextCursor);
         }
       } catch (error) {
-        if (active) {
+        if (
+          active &&
+          messageSelectionVersionRef.current === requestVersion &&
+          selectedServerIdRef.current === targetServerId &&
+          selectedChannelIdRef.current === targetChannelId
+        ) {
           handleRequestError(
             error,
             setMessagesError,
@@ -387,7 +550,12 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
           );
         }
       } finally {
-        if (active) {
+        if (
+          active &&
+          messageSelectionVersionRef.current === requestVersion &&
+          selectedServerIdRef.current === targetServerId &&
+          selectedChannelIdRef.current === targetChannelId
+        ) {
           setMessagesLoading(false);
         }
       }
@@ -397,7 +565,66 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     return () => {
       active = false;
     };
-  }, [handleRequestError, selectedChannelId]);
+  }, [handleRequestError, selectedChannelId, selectedServerId]);
+
+  async function handleLoadOlderMessages() {
+    const targetServerId = selectedServerId;
+    const targetChannelId = selectedChannelId;
+    const cursor = nextMessageCursor;
+    const requestKey = `${targetServerId}:${targetChannelId}:${cursor}`;
+    const requestVersion = messageSelectionVersionRef.current;
+    if (
+      !targetServerId ||
+      !targetChannelId ||
+      !cursor ||
+      loadingOlderMessages ||
+      olderMessagesRequestRef.current
+    ) {
+      return;
+    }
+
+    const requestId = ++olderMessagesRequestIdRef.current;
+    olderMessagesRequestRef.current = { id: requestId, key: requestKey };
+    setLoadingOlderMessages(true);
+    setOlderMessagesError("");
+    try {
+      const response = await api.get(
+        `/channels/${targetChannelId}/messages/`,
+        { params: { cursor } },
+      );
+      if (!Array.isArray(response.data?.results)) {
+        throw new Error("The messages response did not contain a results list.");
+      }
+      const nextCursor = getNextCursor(response.data.next);
+      if (
+        selectedServerIdRef.current === targetServerId &&
+        messageSelectionVersionRef.current === requestVersion &&
+        selectedChannelIdRef.current === targetChannelId &&
+        messagesServerId === targetServerId &&
+        messagesChannelId === targetChannelId
+      ) {
+        setMessages((currentMessages) =>
+          mergeMessagesChronologically(currentMessages, response.data.results),
+        );
+        setNextMessageCursor(nextCursor);
+      }
+    } catch (error) {
+      if (
+        selectedServerIdRef.current === targetServerId &&
+        messageSelectionVersionRef.current === requestVersion &&
+        selectedChannelIdRef.current === targetChannelId
+      ) {
+        setOlderMessagesError(
+          getApiErrorMessage(error, "Could not load older messages."),
+        );
+      }
+    } finally {
+      if (olderMessagesRequestRef.current?.id === requestId) {
+        olderMessagesRequestRef.current = null;
+        setLoadingOlderMessages(false);
+      }
+    }
+  }
 
   const selectedServer = servers.find(
     (server) => String(server.id) === selectedServerId,
@@ -405,6 +632,11 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const selectedChannel = channels.find(
     (channel) => String(channel.id) === selectedChannelId,
   );
+  const displayedMessages =
+    messagesServerId === selectedServerId &&
+    messagesChannelId === selectedChannelId
+      ? messages
+      : [];
   const displayName = profile?.display_name?.trim();
 
   // Search is intentionally limited to server names and descriptions already
@@ -418,29 +650,68 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     );
   });
 
+  const anyDashboardDialogOpen =
+    createModalOpen ||
+    editCommunityOpen ||
+    deleteCommunityOpen ||
+    createChannelOpen;
+  const activeDashboardDialogRef = createModalOpen
+    ? createModalRef
+    : editCommunityOpen
+      ? editCommunityDialogRef
+      : deleteCommunityOpen
+        ? deleteCommunityDialogRef
+        : createChannelDialogRef;
+
   /**
-   * While the modal is open, Escape closes it and Tab stays inside its controls.
-   * Returning focus to the opening button helps keyboard users continue where
-   * they left off after closing or completing the dialog.
+   * Keep keyboard focus inside whichever dashboard dialog is open. Sharing one
+   * effect keeps create, edit, delete, and channel dialogs consistent.
    */
   useEffect(() => {
-    if (!createModalOpen) {
+    if (!anyDashboardDialogOpen) {
       return undefined;
     }
 
-    const modal = createModalRef.current;
+    const modal = activeDashboardDialogRef.current;
     const firstControl = modal?.querySelector("[data-modal-autofocus]");
     firstControl?.focus();
 
     function handleModalKeyDown(event) {
       if (event.key === "Escape") {
         event.preventDefault();
-        if (!creating) {
+        if (
+          creating ||
+          savingCommunityEdit ||
+          deletingCommunity ||
+          creatingChannel
+        ) {
+          return;
+        }
+
+        if (createModalOpen) {
           modalFocusReturnRef.current = {
             element: createTriggerRef.current,
             shouldScroll: false,
           };
           setCreateModalOpen(false);
+        } else if (editCommunityOpen) {
+          modalFocusReturnRef.current = {
+            element: editCommunityTriggerRef.current,
+            shouldScroll: false,
+          };
+          setEditCommunityOpen(false);
+        } else if (deleteCommunityOpen) {
+          modalFocusReturnRef.current = {
+            element: deleteCommunityTriggerRef.current,
+            shouldScroll: false,
+          };
+          setDeleteCommunityOpen(false);
+        } else if (createChannelOpen) {
+          modalFocusReturnRef.current = {
+            element: createChannelTriggerRef.current,
+            shouldScroll: false,
+          };
+          setCreateChannelOpen(false);
         }
         return;
       }
@@ -472,12 +743,24 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
 
     document.addEventListener("keydown", handleModalKeyDown);
     return () => document.removeEventListener("keydown", handleModalKeyDown);
-  }, [createModalOpen, createModalStep, creating]);
+  }, [
+    activeDashboardDialogRef,
+    anyDashboardDialogOpen,
+    createModalOpen,
+    createModalStep,
+    createChannelOpen,
+    creatingChannel,
+    creating,
+    deleteCommunityOpen,
+    deletingCommunity,
+    editCommunityOpen,
+    savingCommunityEdit,
+  ]);
 
-  // Restore focus after React removes the dialog. The invite action uses this
-  // same step to focus and scroll to the existing invite form instead.
+  // Restore focus after React removes the last open dialog. Dialog openers and
+  // the invite shortcut set the element that should receive focus here.
   useEffect(() => {
-    if (createModalOpen || !modalFocusReturnRef.current) {
+    if (anyDashboardDialogOpen || !modalFocusReturnRef.current) {
       return;
     }
 
@@ -487,7 +770,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     if (shouldScroll) {
       element?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [createModalOpen]);
+  }, [anyDashboardDialogOpen]);
 
   function openCreateModal() {
     setCreateError("");
@@ -496,7 +779,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     setCreateModalOpen(true);
   }
 
-  function closeCreateModal() {
+  const closeCreateModal = useCallback(() => {
     if (creating) {
       return;
     }
@@ -506,6 +789,251 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       shouldScroll: false,
     };
     setCreateModalOpen(false);
+  }, [creating]);
+
+  function openCreateChannelModal(event) {
+    if (!selectedServer || creatingChannel) {
+      return;
+    }
+
+    createChannelTriggerRef.current = event.currentTarget;
+    setNewChannelName("");
+    setCreateChannelError("");
+    setChannelActionMessage("");
+    setCreateChannelOpen(true);
+  }
+
+  const closeCreateChannelModal = useCallback(() => {
+    if (creatingChannel) {
+      return;
+    }
+
+    modalFocusReturnRef.current = {
+      element: createChannelTriggerRef.current,
+      shouldScroll: false,
+    };
+    setCreateChannelOpen(false);
+  }, [creatingChannel]);
+
+  /**
+   * POST /servers/{server_id}/channels/ accepts exactly `{ name }`. After the
+   * server confirms creation, the existing channel effect reloads that
+   * community's channels and keeps channel/message selection in sync.
+   */
+  async function handleCreateChannel(event) {
+    event.preventDefault();
+    const name = newChannelName.trim();
+
+    if (!selectedServer || creatingChannel) {
+      return;
+    }
+    if (!name) {
+      setCreateChannelError("A channel name is required.");
+      return;
+    }
+
+    const serverId = String(selectedServer.id);
+    setCreatingChannel(true);
+    setCreateChannelError("");
+    setChannelActionMessage("");
+
+    try {
+      const response = await api.post(
+        `/servers/${serverId}/channels/`,
+        { name },
+      );
+      const createdChannel = response.data;
+      const createdChannelId =
+        typeof createdChannel?.id === "string" ||
+        typeof createdChannel?.id === "number"
+          ? String(createdChannel.id)
+          : "";
+      const createdChannelServerId = getChannelServerId(createdChannel);
+
+      pendingCreatedChannelRef.current =
+        createdChannelId &&
+        createdChannelServerId !== null &&
+        createdChannelServerId !== serverId
+          ? null
+          : createdChannelId && selectedServerIdRef.current === serverId
+            ? { serverId, channelId: createdChannelId }
+            : null;
+
+      setChannelActionMessage(`#${name} was created successfully.`);
+      setChannelRefreshKey((currentKey) => currentKey + 1);
+      setNewChannelName("");
+      modalFocusReturnRef.current = {
+        element: createChannelTriggerRef.current,
+        shouldScroll: false,
+      };
+      setCreateChannelOpen(false);
+    } catch (error) {
+      handleRequestError(
+        error,
+        setCreateChannelError,
+        "Could not create this channel. Please try again.",
+      );
+    } finally {
+      setCreatingChannel(false);
+    }
+  }
+
+  /**
+   * Copy the selected server's existing values into the edit form. Keeping a
+   * separate ID ensures the PATCH updates the same server even if list state
+   * changes while the request is pending.
+   */
+  function openEditCommunityModal() {
+    if (!selectedServer) {
+      return;
+    }
+
+    setEditingServerId(String(selectedServer.id));
+    setEditCommunityName(selectedServer.name || "");
+    setEditCommunityDescription(selectedServer.description || "");
+    setCommunityActionError("");
+    setCommunityActionMessage("");
+    setEditCommunityOpen(true);
+  }
+
+  const closeEditCommunityModal = useCallback(() => {
+    if (savingCommunityEdit) {
+      return;
+    }
+
+    modalFocusReturnRef.current = {
+      element: editCommunityTriggerRef.current,
+      shouldScroll: false,
+    };
+    setEditCommunityOpen(false);
+  }, [savingCommunityEdit]);
+
+  /**
+   * PATCH /servers/{id}/ accepts editable `name` and `description` fields.
+   * Update only the matching list entry from the returned Server object; if the
+   * request fails, the original server remains unchanged and the form stays open.
+   */
+  async function handleSaveCommunityEdit(event) {
+    event.preventDefault();
+    const name = editCommunityName.trim();
+    if (!name || savingCommunityEdit) {
+      if (!name) {
+        setCommunityActionError("A community name is required.");
+      }
+      return;
+    }
+
+    setSavingCommunityEdit(true);
+    setCommunityActionError("");
+    setCommunityActionMessage("");
+
+    try {
+      const response = await api.patch(`/servers/${editingServerId}/`, {
+        name,
+        description: editCommunityDescription.trim(),
+      });
+      const updatedServer = response.data;
+
+      setServers((currentServers) =>
+        currentServers.map((server) =>
+          String(server.id) === editingServerId ? updatedServer : server,
+        ),
+      );
+      setCommunityActionMessage(
+        `${updatedServer.name} was updated successfully.`,
+      );
+      modalFocusReturnRef.current = {
+        element: editCommunityTriggerRef.current,
+        shouldScroll: false,
+      };
+      setEditCommunityOpen(false);
+    } catch (error) {
+      handleRequestError(
+        error,
+        setCommunityActionError,
+        "Could not update this community. Please try again.",
+      );
+    } finally {
+      setSavingCommunityEdit(false);
+    }
+  }
+
+  function openDeleteCommunityDialog() {
+    if (!selectedServer) {
+      return;
+    }
+
+    setCommunityActionError("");
+    setCommunityActionMessage("");
+    setDeleteCommunityOpen(true);
+  }
+
+  const closeDeleteCommunityModal = useCallback(() => {
+    if (deletingCommunity) {
+      return;
+    }
+
+    modalFocusReturnRef.current = {
+      element: deleteCommunityTriggerRef.current,
+      shouldScroll: false,
+    };
+    setDeleteCommunityOpen(false);
+  }, [deletingCommunity]);
+
+  /**
+   * DELETE /servers/{id}/ has no response body. After any successful 2xx result,
+   * remove the selected item and clear its channel/message state. Selecting the
+   * first remaining server lets the existing channel effect load fresh channels.
+   */
+  async function handleDeleteCommunity() {
+    if (!selectedServer || deletingCommunity) {
+      return;
+    }
+
+    const serverToDelete = selectedServer;
+    const deletedServerId = String(serverToDelete.id);
+    setDeletingCommunity(true);
+    setCommunityActionError("");
+    setCommunityActionMessage("");
+
+    try {
+      await api.delete(`/servers/${deletedServerId}/`);
+
+      const remainingServers = servers.filter(
+        (server) => String(server.id) !== deletedServerId,
+      );
+      setServers((currentServers) =>
+        currentServers.filter(
+          (server) => String(server.id) !== deletedServerId,
+        ),
+      );
+      setChannels([]);
+      setSelectedChannelId("");
+      setMessages([]);
+      setChannelsError("");
+      setMessagesError("");
+      setChannelsLoading(false);
+      setMessagesLoading(false);
+      setSelectedServerId(
+        remainingServers[0] ? String(remainingServers[0].id) : "",
+      );
+      setCommunityActionMessage(
+        `${serverToDelete.name} was deleted successfully.`,
+      );
+      modalFocusReturnRef.current = {
+        element: deleteCommunityTriggerRef.current,
+        shouldScroll: false,
+      };
+      setDeleteCommunityOpen(false);
+    } catch (error) {
+      handleRequestError(
+        error,
+        setCommunityActionError,
+        `Could not delete ${serverToDelete.name}. Please try again.`,
+      );
+    } finally {
+      setDeletingCommunity(false);
+    }
   }
 
   /**
@@ -588,6 +1116,10 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       setChannels([]);
       setSelectedChannelId("");
       setMessages([]);
+      setChannelsError("");
+      setMessagesError("");
+      setChannelsLoading(false);
+      setMessagesLoading(false);
       setSelectedServerId(String(joinedServer.id));
       setInvitePreview(null);
       setInviteCode("");
@@ -631,6 +1163,10 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       setChannels([]);
       setSelectedChannelId("");
       setMessages([]);
+      setChannelsError("");
+      setMessagesError("");
+      setChannelsLoading(false);
+      setMessagesLoading(false);
       setSelectedServerId(String(createdServer.id));
       setCreationSuccess(`${createdServer.name} was created successfully.`);
       setCommunityName("");
@@ -662,22 +1198,50 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       return;
     }
 
+    const targetServerId = selectedServerId;
+    const targetChannelId = selectedChannelId;
+    const requestVersion = messageSelectionVersionRef.current;
     setSendingMessage(true);
     setMessagesError("");
 
     try {
       const response = await api.post(
-        `/channels/${selectedChannelId}/messages/`,
+        `/channels/${targetChannelId}/messages/`,
         { content },
       );
-      setMessages((currentMessages) => [...currentMessages, response.data]);
-      setMessageDraft("");
+      if (
+        selectedServerIdRef.current === targetServerId &&
+        selectedChannelIdRef.current === targetChannelId &&
+        messageSelectionVersionRef.current === requestVersion
+      ) {
+        if (String(response.data?.channel) !== targetChannelId) {
+          throw new Error("The message response did not match the selected channel.");
+        }
+        setMessages((currentMessages) =>
+          mergeMessagesChronologically(
+            messagesServerId === targetServerId &&
+              messagesChannelId === targetChannelId
+              ? currentMessages
+              : [],
+            [response.data],
+          ),
+        );
+        setMessagesServerId(targetServerId);
+        setMessagesChannelId(targetChannelId);
+        setMessageDraft("");
+      }
     } catch (error) {
-      handleRequestError(
-        error,
-        setMessagesError,
-        "Your message could not be sent. Please try again.",
-      );
+      if (
+        selectedServerIdRef.current === targetServerId &&
+        selectedChannelIdRef.current === targetChannelId &&
+        messageSelectionVersionRef.current === requestVersion
+      ) {
+        handleRequestError(
+          error,
+          setMessagesError,
+          "Your message could not be sent. Please try again.",
+        );
+      }
     } finally {
       setSendingMessage(false);
     }
@@ -980,12 +1544,30 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
             </SectionHeading>
 
             {creationSuccess && (
-                <p
-                  role="status"
-                  className="mb-4 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-700"
-                >
-                  {creationSuccess}
-                </p>
+              <p
+                role="status"
+                className="mb-4 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-700"
+              >
+                {creationSuccess}
+              </p>
+            )}
+
+            {communityActionMessage && (
+              <p
+                role="status"
+                className="mb-4 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-700"
+              >
+                {communityActionMessage}
+              </p>
+            )}
+
+            {communityActionError && (
+              <p
+                role="alert"
+                className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+              >
+                {communityActionError}
+              </p>
             )}
 
             {serversLoading ? (
@@ -1010,11 +1592,12 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                     server={server}
                     selected={String(server.id) === selectedServerId}
                     onSelect={() => {
-                      setChannels([]);
-                      setSelectedChannelId("");
-                      setMessages([]);
-                      setSelectedServerId(String(server.id));
+                      setCommunityActionError("");
+                      setCommunityActionMessage("");
                       setActiveNav("My communities");
+                      navigate(
+                        `/dashboard/communities/${encodeURIComponent(server.id)}`,
+                      );
                     }}
                   />
                 ))}
@@ -1156,6 +1739,15 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                     </span>
                   </span>
                 </div>
+                <button
+                  type="button"
+                  onClick={openCreateChannelModal}
+                  disabled={!selectedServer || creatingChannel}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-2 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50 xl:hidden"
+                >
+                  <Plus size={14} />
+                  Create Channel
+                </button>
                 {channels.length > 0 && (
                   <label className="sr-only" htmlFor="channel-select">
                     Select a channel
@@ -1165,9 +1757,11 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                   <select
                     id="channel-select"
                     value={selectedChannelId}
-                    onChange={(event) =>
-                      setSelectedChannelId(event.target.value)
-                    }
+                    onChange={(event) => {
+                      setMessages([]);
+                      setMessagesError("");
+                      setSelectedChannelId(event.target.value);
+                    }}
                     className="max-w-48 rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-xs text-neutral-700 outline-none focus:border-neutral-500"
                   >
                     {channels.map((channel) => (
@@ -1209,37 +1803,62 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                       No channels are available in this community yet.
                     </p>
                   </div>
-                ) : !messages.length ? (
+                ) : !displayedMessages.length ? (
                   <p className="m-auto text-center text-sm text-neutral-500">
                     No messages in this channel yet. Start the conversation.
                   </p>
                 ) : (
-                  messages.map((message) => (
-                    <article
-                      key={message.id}
-                      className="flex items-start gap-3"
-                    >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xs font-semibold text-neutral-700">
-                        {message.author?.display_name?.[0]?.toUpperCase() || "?"}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                          <span className="text-sm font-semibold">
-                            {message.author?.display_name || "Community member"}
-                          </span>
-                          <time
-                            dateTime={message.created_at}
-                            className="text-[11px] text-neutral-400"
+                  <>
+                    {(nextMessageCursor || olderMessagesError) && (
+                      <div className="order-first flex flex-col items-center gap-2">
+                        {olderMessagesError && (
+                          <p role="alert" className="text-sm text-neutral-600">
+                            {olderMessagesError}
+                          </p>
+                        )}
+                        {nextMessageCursor && (
+                          <button
+                            type="button"
+                            onClick={handleLoadOlderMessages}
+                            disabled={loadingOlderMessages}
+                            className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 disabled:cursor-wait disabled:opacity-60"
                           >
-                            {new Date(message.created_at).toLocaleString()}
-                          </time>
-                        </div>
-                        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-neutral-700">
-                          {message.content}
-                        </p>
+                            {loadingOlderMessages
+                              ? "Loading older messages..."
+                              : olderMessagesError
+                                ? "Retry loading older messages"
+                                : "Load older messages"}
+                          </button>
+                        )}
                       </div>
-                    </article>
-                  ))
+                    )}
+                    {displayedMessages.map((message) => (
+                      <article
+                        key={message.id}
+                        className="flex items-start gap-3"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xs font-semibold text-neutral-700">
+                          {message.author?.display_name?.[0]?.toUpperCase() || "?"}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                            <span className="text-sm font-semibold">
+                              {message.author?.display_name || "Community member"}
+                            </span>
+                            <time
+                              dateTime={message.created_at}
+                              className="text-[11px] text-neutral-400"
+                            >
+                              {new Date(message.created_at).toLocaleString()}
+                            </time>
+                          </div>
+                          <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-neutral-700">
+                            {message.content}
+                          </p>
+                        </div>
+                      </article>
+                    ))}
+                  </>
                 )}
               </div>
 
@@ -1391,6 +2010,28 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                       {new Date(selectedServer.created_at).toLocaleDateString()}
                     </p>
                   )}
+                  <div className="mt-4 flex gap-2 border-t border-neutral-100 pt-4">
+                    <button
+                      ref={editCommunityTriggerRef}
+                      type="button"
+                      onClick={openEditCommunityModal}
+                      disabled={savingCommunityEdit || deletingCommunity}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Pencil size={15} />
+                      Edit
+                    </button>
+                    <button
+                      ref={deleteCommunityTriggerRef}
+                      type="button"
+                      onClick={openDeleteCommunityDialog}
+                      disabled={savingCommunityEdit || deletingCommunity}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 size={15} />
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <p className="rounded-2xl border border-dashed border-neutral-300 p-4 text-sm leading-6 text-neutral-500">
@@ -1400,7 +2041,26 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
             </section>
 
             <section>
-              <SectionHeading eyebrow="In this community" title="Channels" />
+              <SectionHeading eyebrow="In this community" title="Channels">
+                <button
+                  ref={createChannelTriggerRef}
+                  type="button"
+                  onClick={openCreateChannelModal}
+                  disabled={!selectedServer || creatingChannel}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-neutral-950 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus size={15} />
+                  Create Channel
+                </button>
+              </SectionHeading>
+              {channelActionMessage && (
+                <p
+                  role="status"
+                  className="mb-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800"
+                >
+                  {channelActionMessage}
+                </p>
+              )}
               {channelsLoading ? (
                 <p role="status" className="text-sm text-neutral-500">
                   Loading channels...
@@ -1415,9 +2075,11 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                     <li key={channel.id}>
                       <button
                         type="button"
-                        onClick={() =>
-                          setSelectedChannelId(String(channel.id))
-                        }
+                        onClick={() => {
+                          setMessages([]);
+                          setMessagesError("");
+                          setSelectedChannelId(String(channel.id));
+                        }}
                         className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
                           selectedChannelId === String(channel.id)
                             ? "bg-neutral-100 font-medium text-neutral-950"
@@ -1656,6 +2318,306 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                 </footer>
               </form>
             )}
+          </section>
+        </div>
+      )}
+
+      {editCommunityOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-neutral-950/60 p-3 backdrop-blur-[2px] sm:p-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeEditCommunityModal();
+            }
+          }}
+        >
+          <section
+            ref={editCommunityDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-community-title"
+            aria-describedby="edit-community-description"
+            aria-busy={savingCommunityEdit}
+            tabIndex={-1}
+            className="my-auto w-full max-w-xl overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl outline-none"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-5 sm:px-7">
+              <div>
+                <h2
+                  id="edit-community-title"
+                  className="text-xl font-semibold tracking-tight sm:text-2xl"
+                >
+                  Edit community
+                </h2>
+                <p
+                  id="edit-community-description"
+                  className="mt-2 text-sm leading-6 text-neutral-600"
+                >
+                  Update the name or description for this community.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditCommunityModal}
+                disabled={savingCommunityEdit}
+                aria-label="Close edit community dialog"
+                className="shrink-0 rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X size={19} />
+              </button>
+            </header>
+
+            <form
+              onSubmit={handleSaveCommunityEdit}
+              className="px-5 py-5 sm:px-7 sm:py-6"
+            >
+              <div className="space-y-4">
+                <label
+                  htmlFor="edit-community-name"
+                  className="block text-sm font-medium text-neutral-800"
+                >
+                  Community name <span aria-hidden="true">*</span>
+                  <input
+                    id="edit-community-name"
+                    data-modal-autofocus="true"
+                    required
+                    maxLength={100}
+                    value={editCommunityName}
+                    onChange={(event) => {
+                      setEditCommunityName(event.target.value);
+                      setCommunityActionError("");
+                    }}
+                    aria-invalid={Boolean(communityActionError)}
+                    aria-describedby={
+                      communityActionError
+                        ? "edit-community-error"
+                        : undefined
+                    }
+                    className="mt-2 w-full rounded-xl border border-neutral-300 px-3.5 py-3 text-sm text-neutral-950 outline-none transition focus:border-neutral-600 focus:ring-2 focus:ring-neutral-200"
+                  />
+                </label>
+                <label
+                  htmlFor="edit-community-description-input"
+                  className="block text-sm font-medium text-neutral-800"
+                >
+                  Description{" "}
+                  <span className="font-normal text-neutral-500">
+                    (optional)
+                  </span>
+                  <textarea
+                    id="edit-community-description-input"
+                    rows={3}
+                    value={editCommunityDescription}
+                    onChange={(event) =>
+                      setEditCommunityDescription(event.target.value)
+                    }
+                    className="mt-2 w-full resize-y rounded-xl border border-neutral-300 px-3.5 py-3 text-sm text-neutral-950 outline-none transition focus:border-neutral-600 focus:ring-2 focus:ring-neutral-200"
+                  />
+                </label>
+              </div>
+
+              {communityActionError && (
+                <p
+                  id="edit-community-error"
+                  role="alert"
+                  className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"
+                >
+                  {communityActionError}
+                </p>
+              )}
+
+              <footer className="mt-6 flex flex-col-reverse justify-between gap-3 border-t border-neutral-100 pt-4 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={closeEditCommunityModal}
+                  disabled={savingCommunityEdit}
+                  className="rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCommunityEdit}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-neutral-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {savingCommunityEdit ? "Saving..." : "Save changes"}
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {deleteCommunityOpen && selectedServer && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-neutral-950/60 p-3 backdrop-blur-[2px] sm:p-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeDeleteCommunityModal();
+            }
+          }}
+        >
+          <section
+            ref={deleteCommunityDialogRef}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-community-title"
+            aria-describedby="delete-community-description"
+            aria-busy={deletingCommunity}
+            tabIndex={-1}
+            className="my-auto w-full max-w-md overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl outline-none"
+          >
+            <div className="p-5 sm:p-6">
+              <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-700">
+                <Trash2 size={19} />
+              </span>
+              <h2
+                id="delete-community-title"
+                className="text-xl font-semibold tracking-tight"
+              >
+                Delete community?
+              </h2>
+              <p
+                id="delete-community-description"
+                className="mt-2 text-sm leading-6 text-neutral-600"
+              >
+                Are you sure you want to delete{" "}
+                <span className="font-semibold text-neutral-950">
+                  {selectedServer.name}
+                </span>
+                ? This action cannot be undone.
+              </p>
+
+              {communityActionError && (
+                <p
+                  role="alert"
+                  className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"
+                >
+                  {communityActionError}
+                </p>
+              )}
+
+              <footer className="mt-6 flex flex-col-reverse justify-end gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  data-modal-autofocus="true"
+                  onClick={closeDeleteCommunityModal}
+                  disabled={deletingCommunity}
+                  className="rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteCommunity}
+                  disabled={deletingCommunity}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {deletingCommunity ? "Deleting..." : "Delete community"}
+                </button>
+              </footer>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {createChannelOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-neutral-950/60 p-3 backdrop-blur-[2px] sm:p-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeCreateChannelModal();
+            }
+          }}
+        >
+          <section
+            ref={createChannelDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-channel-title"
+            aria-describedby="create-channel-description"
+            aria-busy={creatingChannel}
+            tabIndex={-1}
+            className="my-auto w-full max-w-md overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl outline-none"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-5 sm:px-6">
+              <div>
+                <h2
+                  id="create-channel-title"
+                  className="text-xl font-semibold tracking-tight"
+                >
+                  Create Channel
+                </h2>
+                <p
+                  id="create-channel-description"
+                  className="mt-2 text-sm leading-6 text-neutral-600"
+                >
+                  Add a channel to {selectedServer?.name || "this community"}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCreateChannelModal}
+                disabled={creatingChannel}
+                aria-label="Close create channel dialog"
+                className="shrink-0 rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X size={19} />
+              </button>
+            </header>
+
+            <form onSubmit={handleCreateChannel} className="px-5 py-5 sm:px-6">
+              <label
+                htmlFor="new-channel-name"
+                className="block text-sm font-medium text-neutral-800"
+              >
+                Channel name <span aria-hidden="true">*</span>
+                <input
+                  id="new-channel-name"
+                  data-modal-autofocus="true"
+                  required
+                  autoComplete="off"
+                  value={newChannelName}
+                  onChange={(event) => {
+                    setNewChannelName(event.target.value);
+                    setCreateChannelError("");
+                  }}
+                  aria-invalid={Boolean(createChannelError)}
+                  aria-describedby={
+                    createChannelError ? "create-channel-error" : undefined
+                  }
+                  className="mt-2 w-full rounded-xl border border-neutral-300 px-3.5 py-3 text-sm text-neutral-950 outline-none transition focus:border-neutral-600 focus:ring-2 focus:ring-neutral-200"
+                />
+              </label>
+
+              {createChannelError && (
+                <p
+                  id="create-channel-error"
+                  role="alert"
+                  className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"
+                >
+                  {createChannelError}
+                </p>
+              )}
+
+              <footer className="mt-6 flex flex-col-reverse justify-end gap-3 border-t border-neutral-100 pt-4 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={closeCreateChannelModal}
+                  disabled={creatingChannel}
+                  className="rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!selectedServer || creatingChannel}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-neutral-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {creatingChannel ? "Creating..." : "Create Channel"}
+                </button>
+              </footer>
+            </form>
           </section>
         </div>
       )}

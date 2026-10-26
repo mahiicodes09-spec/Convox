@@ -72,6 +72,10 @@ if (!email.trim() || !otp.trim()) {
   setError("Please enter your email address and OTP.");
   return;
 }
+if (otp.trim().length !== 6) {
+  setError("The OTP must contain exactly 6 characters.");
+  return;
+}
 
 setLoading(true);
 
@@ -160,6 +164,7 @@ return (
         <input
           id="otp"
           type="text"
+          maxLength={6}
           inputMode="numeric"
           autoComplete="one-time-code"
           value={otp}
