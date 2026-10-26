@@ -1,16 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Check,
   Hash,
+  Info,
   LoaderCircle,
   Menu,
-  MessageCircle,
   Pencil,
   Plus,
+  Settings2,
   Send,
   Trash2,
+  UserPlus,
   UsersRound,
   X,
 } from "lucide-react";
@@ -28,6 +37,34 @@ function getChannelServerId(channel) {
     return server.id == null ? null : String(server.id);
   }
   return server == null ? null : String(server);
+}
+
+function getNextCursor(next) {
+  if (!next) {
+    return "";
+  }
+  const cursor = new URL(next, window.location.origin).searchParams.get(
+    "cursor",
+  );
+  if (!cursor) {
+    throw new Error("The message pagination link did not contain a cursor.");
+  }
+  return cursor;
+}
+
+function mergeMessagesChronologically(existing, incoming) {
+  const messagesById = new Map(
+    existing.map((message) => [String(message.id), message]),
+  );
+  incoming.forEach((message) => {
+    if (!messagesById.has(String(message.id))) {
+      messagesById.set(String(message.id), message);
+    }
+  });
+  return [...messagesById.values()].sort(
+    (left, right) =>
+      Date.parse(left.created_at) - Date.parse(right.created_at),
+  );
 }
 
 function canModifyMessage(message, profile) {
@@ -58,10 +95,15 @@ export default function CommunityWorkspacePage({ profile }) {
   const [channelsError, setChannelsError] = useState("");
   const [channelRefreshKey, setChannelRefreshKey] = useState(0);
   const [messages, setMessages] = useState([]);
+  const [messagesServerId, setMessagesServerId] = useState("");
   const [messagesChannelId, setMessagesChannelId] = useState("");
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState("");
   const [messagesRefreshKey, setMessagesRefreshKey] = useState(0);
+  const messageSelectionVersionRef = useRef(0);
+  const [nextMessageCursor, setNextMessageCursor] = useState("");
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessagesError, setOlderMessagesError] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState("");
@@ -79,6 +121,9 @@ export default function CommunityWorkspacePage({ profile }) {
   const [channelSuccess, setChannelSuccess] = useState("");
   const [creatingChannel, setCreatingChannel] = useState(false);
   const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
+  const [mobileCommunitiesOpen, setMobileCommunitiesOpen] = useState(false);
+  const [communityInfoOpen, setCommunityInfoOpen] = useState(false);
+  const [welcomeActionMessage, setWelcomeActionMessage] = useState("");
   const selectedServerIdRef = useRef(serverId);
   const selectedChannelIdRef = useRef(selectedChannelId);
   const savingMessageIdRef = useRef("");
@@ -92,11 +137,16 @@ export default function CommunityWorkspacePage({ profile }) {
   const deleteMessageCancelRef = useRef(null);
   const deleteMessageTriggerRef = useRef(null);
   const messageComposerRef = useRef(null);
+  const messageListRef = useRef(null);
+  const messageListEndRef = useRef(null);
+  const olderScrollPositionRef = useRef(null);
+  const selectedChannelButtonRef = useRef(null);
   const restoreDeleteMessageTriggerRef = useRef(false);
+  const olderMessagesRequestRef = useRef(null);
+  const olderMessagesRequestIdRef = useRef(0);
 
-  // The refs let asynchronous requests check the latest route and channel
-  // without allowing a response for an old selection to overwrite current UI.
-  useEffect(() => {
+  // Sync route and channel refs before async responses can update this view.
+  useLayoutEffect(() => {
     selectedServerIdRef.current = serverId;
     selectedChannelIdRef.current = selectedChannelId;
   }, [selectedChannelId, serverId]);
@@ -164,6 +214,8 @@ export default function CommunityWorkspacePage({ profile }) {
 
     let active = true;
     const previousChannelId = selectedChannelIdRef.current;
+    messageSelectionVersionRef.current += 1;
+    olderScrollPositionRef.current = null;
 
     async function loadChannels() {
       setChannelsLoading(true);
@@ -172,9 +224,14 @@ export default function CommunityWorkspacePage({ profile }) {
       setChannelsServerId("");
       setSelectedChannelId("");
       setMessages([]);
+      setMessagesServerId("");
       setMessagesChannelId("");
       setMessagesError("");
       setMessagesLoading(false);
+      setNextMessageCursor("");
+      setLoadingOlderMessages(false);
+      setOlderMessagesError("");
+      olderMessagesRequestRef.current = null;
 
       try {
         const response = await api.get(
@@ -261,12 +318,18 @@ export default function CommunityWorkspacePage({ profile }) {
 
     let active = true;
     const channelId = String(selectedChannel.id);
+    const requestVersion = ++messageSelectionVersionRef.current;
 
     async function loadMessages() {
       setMessagesLoading(true);
       setMessagesError("");
       setMessages([]);
+      setMessagesServerId("");
       setMessagesChannelId("");
+      setNextMessageCursor("");
+      setLoadingOlderMessages(false);
+      setOlderMessagesError("");
+      olderMessagesRequestRef.current = null;
 
       try {
         const response = await api.get(
@@ -275,16 +338,25 @@ export default function CommunityWorkspacePage({ profile }) {
         if (!Array.isArray(response.data?.results)) {
           throw new Error("The messages response did not contain a results list.");
         }
+        const nextCursor = getNextCursor(response.data.next);
         if (
           active &&
+          messageSelectionVersionRef.current === requestVersion &&
           selectedServerIdRef.current === serverId &&
           selectedChannelIdRef.current === channelId
         ) {
-          setMessages(response.data.results);
+          setMessages(mergeMessagesChronologically([], response.data.results));
+          setMessagesServerId(serverId);
           setMessagesChannelId(channelId);
+          setNextMessageCursor(nextCursor);
         }
       } catch (error) {
-        if (active) {
+        if (
+          active &&
+          messageSelectionVersionRef.current === requestVersion &&
+          selectedServerIdRef.current === serverId &&
+          selectedChannelIdRef.current === channelId
+        ) {
           handleRequestError(
             error,
             setMessagesError,
@@ -292,7 +364,12 @@ export default function CommunityWorkspacePage({ profile }) {
           );
         }
       } finally {
-        if (active) {
+        if (
+          active &&
+          messageSelectionVersionRef.current === requestVersion &&
+          selectedServerIdRef.current === serverId &&
+          selectedChannelIdRef.current === channelId
+        ) {
           setMessagesLoading(false);
         }
       }
@@ -405,10 +482,18 @@ export default function CommunityWorkspacePage({ profile }) {
     }
 
     selectedChannelIdRef.current = channelId;
+    messageSelectionVersionRef.current += 1;
+    olderMessagesRequestRef.current = null;
+    olderScrollPositionRef.current = null;
     setSelectedChannelId(channelId);
     setMessages([]);
+    setMessagesServerId("");
     setMessagesChannelId("");
     setMessagesError("");
+    setNextMessageCursor("");
+    setLoadingOlderMessages(false);
+    setOlderMessagesError("");
+    olderMessagesRequestRef.current = null;
     setEditingMessageId("");
     setEditingMessageServerId("");
     setEditingMessageChannelId("");
@@ -486,6 +571,7 @@ export default function CommunityWorkspacePage({ profile }) {
 
     const channelId = String(selectedChannel.id);
     const messageServerId = serverId;
+    const requestVersion = messageSelectionVersionRef.current;
     setSendingMessage(true);
     setMessagesError("");
 
@@ -496,24 +582,101 @@ export default function CommunityWorkspacePage({ profile }) {
       );
       if (
         selectedServerIdRef.current === messageServerId &&
-        selectedChannelIdRef.current === channelId
+        selectedChannelIdRef.current === channelId &&
+        messageSelectionVersionRef.current === requestVersion
       ) {
+        if (String(response.data?.channel) !== channelId) {
+          throw new Error("The message response did not match the selected channel.");
+        }
         setMessages((currentMessages) =>
+          messagesServerId === messageServerId &&
           messagesChannelId === channelId
             ? [...currentMessages, response.data]
             : [response.data],
         );
+        setMessagesServerId(messageServerId);
         setMessagesChannelId(channelId);
         setMessageDraft("");
       }
     } catch (error) {
-      handleRequestError(
-        error,
-        setMessagesError,
-        "Your message could not be sent. Please try again.",
-      );
+      if (
+        selectedServerIdRef.current === messageServerId &&
+        selectedChannelIdRef.current === channelId &&
+        messageSelectionVersionRef.current === requestVersion
+      ) {
+        handleRequestError(
+          error,
+          setMessagesError,
+          "Your message could not be sent. Please try again.",
+        );
+      }
     } finally {
       setSendingMessage(false);
+    }
+  }
+
+  async function handleLoadOlderMessages() {
+    const channelId = String(selectedChannel?.id || "");
+    const targetServerId = serverId;
+    const cursor = nextMessageCursor;
+    const requestKey = `${targetServerId}:${channelId}:${cursor}`;
+    const requestVersion = messageSelectionVersionRef.current;
+    if (
+      !cursor ||
+      !channelId ||
+      loadingOlderMessages ||
+      olderMessagesRequestRef.current
+    ) {
+      return;
+    }
+
+    const requestId = ++olderMessagesRequestIdRef.current;
+    olderMessagesRequestRef.current = { id: requestId, key: requestKey };
+    const messageList = messageListRef.current;
+    olderScrollPositionRef.current = messageList
+      ? {
+          scrollHeight: messageList.scrollHeight,
+          scrollTop: messageList.scrollTop,
+        }
+      : null;
+    setLoadingOlderMessages(true);
+    setOlderMessagesError("");
+    try {
+      const response = await api.get(
+        `/channels/${encodeURIComponent(channelId)}/messages/`,
+        { params: { cursor } },
+      );
+      if (!Array.isArray(response.data?.results)) {
+        throw new Error("The messages response did not contain a results list.");
+      }
+      const nextCursor = getNextCursor(response.data.next);
+      if (
+        selectedServerIdRef.current === targetServerId &&
+        messageSelectionVersionRef.current === requestVersion &&
+        selectedChannelIdRef.current === channelId &&
+        messagesServerId === targetServerId &&
+        messagesChannelId === channelId
+      ) {
+        setMessages((currentMessages) =>
+          mergeMessagesChronologically(currentMessages, response.data.results),
+        );
+        setNextMessageCursor(nextCursor);
+      }
+    } catch (error) {
+      if (
+        selectedServerIdRef.current === targetServerId &&
+        messageSelectionVersionRef.current === requestVersion &&
+        selectedChannelIdRef.current === channelId
+      ) {
+        setOlderMessagesError(
+          getApiErrorMessage(error, "Could not load older messages."),
+        );
+      }
+    } finally {
+      if (olderMessagesRequestRef.current?.id === requestId) {
+        olderMessagesRequestRef.current = null;
+        setLoadingOlderMessages(false);
+      }
     }
   }
 
@@ -541,7 +704,14 @@ export default function CommunityWorkspacePage({ profile }) {
       !selectedChannel ||
       !content ||
       savingMessageIdRef.current ||
-      !canModifyMessage(message, profile)
+      !canModifyMessage(message, profile) ||
+      editingMessageServerId !== targetServerId ||
+      editingMessageChannelId !== channelId ||
+      messagesServerId !== targetServerId ||
+      messagesChannelId !== channelId ||
+      !messages.some(
+        (currentMessage) => String(currentMessage.id) === messageId,
+      )
     ) {
       if (!content) {
         setEditMessageError("Message content cannot be empty.");
@@ -638,6 +808,11 @@ export default function CommunityWorkspacePage({ profile }) {
     if (
       selectedServerIdRef.current !== targetServerId ||
       selectedChannelIdRef.current !== targetChannelId ||
+      messagesServerId !== targetServerId ||
+      messagesChannelId !== targetChannelId ||
+      !messages.some(
+        (currentMessage) => String(currentMessage.id) === messageId,
+      ) ||
       !canModifyMessage(messageToDelete, profile)
     ) {
       setMessageToDelete(null);
@@ -681,27 +856,98 @@ export default function CommunityWorkspacePage({ profile }) {
     }
   }
 
-  const displayedMessages =
-    messagesChannelId === String(selectedChannel?.id)
-      ? messages
-      : [];
+  const displayedMessages = useMemo(
+    () =>
+      messagesServerId === serverId &&
+      messagesChannelId === String(selectedChannel?.id)
+        ? messages
+        : [],
+    [messages, messagesChannelId, messagesServerId, selectedChannel?.id, serverId],
+  );
+  const hasCurrentUserMessage = displayedMessages.some(
+    (message) =>
+      profile?.id != null &&
+      message.author?.id != null &&
+      String(message.author.id) === String(profile.id),
+  );
   const profileName = profile?.display_name?.trim() || "Your profile";
+
+  useLayoutEffect(() => {
+    if (olderScrollPositionRef.current && messageListRef.current) {
+      const { scrollHeight, scrollTop } = olderScrollPositionRef.current;
+      messageListRef.current.scrollTop =
+        scrollTop + messageListRef.current.scrollHeight - scrollHeight;
+      olderScrollPositionRef.current = null;
+      return;
+    }
+    if (!messagesLoading && selectedChannel) {
+      messageListEndRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [displayedMessages, messagesLoading, selectedChannel]);
+
+  useEffect(() => {
+    if (mobileChannelsOpen) {
+      selectedChannelButtonRef.current?.focus();
+    }
+  }, [mobileChannelsOpen]);
+
+  function handleMessageComposerKeyDown(event) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
+    }
+  }
+
+  async function copyCommunityInvite() {
+    const invite = selectedServer?.invite_link || selectedServer?.invite_code;
+    if (!invite) {
+      navigate("/dashboard#discover");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(invite);
+      setWelcomeActionMessage("Community invite copied to your clipboard.");
+    } catch {
+      setWelcomeActionMessage(
+        "Clipboard access is unavailable. Open community settings to share its invite.",
+      );
+    }
+  }
+
+  function exploreChannels() {
+    setMobileChannelsOpen(true);
+  }
 
   return (
     <div className="community-workspace flex h-dvh min-h-[520px] flex-col overflow-hidden bg-neutral-100 text-neutral-950 lg:flex-row">
       <aside
         aria-label="Community navigation"
-        className="z-30 flex h-16 shrink-0 items-center gap-2 overflow-x-auto border-b border-neutral-200 bg-white px-3 lg:h-screen lg:w-[76px] lg:flex-col lg:items-center lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-2 lg:py-4"
+        className={`community-workspace__community-rail ${
+          mobileCommunitiesOpen ? "is-open" : ""
+        } z-30 flex h-16 shrink-0 items-center gap-2 overflow-x-auto border-b border-neutral-200 bg-white px-3 lg:h-screen lg:w-[76px] lg:flex-col lg:items-center lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-2 lg:py-4`}
       >
         <Link
           to="/dashboard"
-          aria-label="Back to dashboard"
-          title="Back to dashboard"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+          aria-label="Smart Community dashboard"
+          title="Smart Community"
+          className="community-workspace__brand flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
         >
-          <ArrowLeft size={18} />
+          <UsersRound size={19} />
         </Link>
-        <span className="mx-1 h-8 w-px shrink-0 bg-neutral-200 lg:my-1 lg:h-px lg:w-10" />
+        <span className="community-workspace__rail-divider mx-1 h-8 w-px shrink-0 bg-neutral-200 lg:my-1 lg:h-px lg:w-10" />
+        <button
+          type="button"
+          className="community-workspace__mobile-close"
+          aria-label="Close community navigation"
+          onClick={() => setMobileCommunitiesOpen(false)}
+        >
+          <X size={18} />
+        </button>
 
         {serversLoading ? (
           <span role="status" className="px-2 text-xs text-neutral-500 lg:sr-only">
@@ -723,9 +969,13 @@ export default function CommunityWorkspacePage({ profile }) {
                 key={server.id}
                 type="button"
                 onClick={() =>
-                  navigate(
-                    `/dashboard/communities/${encodeURIComponent(server.id)}`,
-                  )
+                  {
+                    setMobileCommunitiesOpen(false);
+                    setMobileChannelsOpen(false);
+                    navigate(
+                      `/dashboard/communities/${encodeURIComponent(server.id)}`,
+                    );
+                  }
                 }
                 aria-label={server.name}
                 aria-current={active ? "page" : undefined}
@@ -749,10 +999,27 @@ export default function CommunityWorkspacePage({ profile }) {
             );
           })
         )}
+        <Link
+          to="/dashboard#my-communities"
+          aria-label="Create or join a community"
+          title="Create or join a community"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-neutral-300 bg-white text-neutral-600 transition hover:border-neutral-500 hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+        >
+          <Plus size={18} aria-hidden="true" />
+        </Link>
       </aside>
 
-      <aside className="relative z-20 flex min-h-0 shrink-0 flex-col border-b border-neutral-200 bg-white lg:h-screen lg:w-64 lg:border-b-0 lg:border-r">
-        <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-4 py-4">
+      {mobileCommunitiesOpen && (
+        <button
+          type="button"
+          className="community-workspace__mobile-scrim"
+          aria-label="Close community navigation"
+          onClick={() => setMobileCommunitiesOpen(false)}
+        />
+      )}
+
+      <aside className="community-workspace__channel-sidebar relative z-20 flex min-h-0 shrink-0 flex-col border-b border-neutral-200 bg-white lg:h-screen lg:w-64 lg:border-b-0 lg:border-r">
+        <div className="community-workspace__community-header flex items-center justify-between gap-3 border-b border-neutral-200 px-4 py-4">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-neutral-500">
               Smart Community
@@ -772,15 +1039,23 @@ export default function CommunityWorkspacePage({ profile }) {
             <Plus size={17} />
           </button>
         </div>
+        <div className="community-workspace__community-info">
+          <p className="community-workspace__community-description">
+            {selectedServer?.description?.trim() ||
+              "Choose a channel to connect with your community."}
+          </p>
+          <Link to="/dashboard#my-communities">Manage community</Link>
+        </div>
 
         <div
+          id="workspace-channel-navigation"
           className={`${
             mobileChannelsOpen ? "flex" : "hidden"
           } absolute left-0 right-0 top-full z-20 max-h-[55vh] flex-col overflow-y-auto border-b border-neutral-200 bg-white shadow-xl lg:static lg:flex lg:max-h-none lg:flex-1 lg:border-0 lg:shadow-none`}
         >
-          <div className="flex items-center justify-between px-4 pb-2 pt-4">
+          <div className="community-workspace__channel-heading flex items-center justify-between px-4 pb-2 pt-4">
             <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">
-              Channels
+              Text Channels
             </h2>
             <Link
               to="/dashboard#my-communities"
@@ -808,16 +1083,17 @@ export default function CommunityWorkspacePage({ profile }) {
               </button>
             </div>
           ) : availableChannels.length ? (
-            <ul className="space-y-1 px-2 pb-4">
+            <ul className="community-workspace__channel-list space-y-1 px-2 pb-4">
               {availableChannels.map((channel) => {
                 const active = String(channel.id) === selectedChannelId;
                 return (
                   <li key={channel.id}>
                     <button
+                      ref={active ? selectedChannelButtonRef : null}
                       type="button"
                       onClick={() => selectChannel(channel)}
                       aria-current={active ? "page" : undefined}
-                      className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 ${
+                      className={`community-workspace__channel-button flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 ${
                         active
                           ? "bg-neutral-950 font-medium text-white"
                           : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950"
@@ -838,7 +1114,7 @@ export default function CommunityWorkspacePage({ profile }) {
             </p>
           )}
 
-          <div className="mt-auto hidden border-t border-neutral-200 p-3 lg:block">
+          <div className="community-workspace__profile-panel mt-auto flex border-t border-neutral-200 p-3">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-xs font-semibold text-white">
                 {profileName
@@ -857,23 +1133,43 @@ export default function CommunityWorkspacePage({ profile }) {
                 </span>
               </span>
             </div>
+            <Link
+              to="/dashboard#settings"
+              className="community-workspace__account-link"
+            >
+              Account settings
+            </Link>
           </div>
         </div>
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-neutral-50">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-200 bg-white px-4 py-3 sm:px-6">
+        <header className="community-workspace__chat-header flex shrink-0 items-center justify-between gap-3 border-b border-neutral-200 bg-white px-4 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileCommunitiesOpen((open) => !open)}
+              aria-expanded={mobileCommunitiesOpen}
+              aria-label={
+                mobileCommunitiesOpen
+                  ? "Close community navigation"
+                  : "Open community navigation"
+              }
+              className="community-workspace__mobile-nav-button"
+            >
+              <UsersRound size={17} />
+            </button>
             <button
               type="button"
               onClick={() => setMobileChannelsOpen((open) => !open)}
               aria-expanded={mobileChannelsOpen}
+              aria-controls="workspace-channel-navigation"
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-neutral-200 text-neutral-700 hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 lg:hidden"
               aria-label={mobileChannelsOpen ? "Close channels" : "Open channels"}
             >
               {mobileChannelsOpen ? <X size={17} /> : <Menu size={17} />}
             </button>
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-700">
+            <span className="community-workspace__channel-mark flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-700">
               <Hash size={18} />
             </span>
             <div className="min-w-0">
@@ -930,7 +1226,7 @@ export default function CommunityWorkspacePage({ profile }) {
             {channelSuccess && (
               <p
                 role="status"
-                className="mx-4 mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 sm:mx-6"
+                className="community-workspace__success mx-4 mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 sm:mx-6"
               >
                 {channelSuccess}
               </p>
@@ -940,10 +1236,11 @@ export default function CommunityWorkspacePage({ profile }) {
               className="flex min-h-0 flex-1 flex-col"
             >
               <div
+                ref={messageListRef}
                 aria-live="polite"
-                className="community-workspace__messages flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-5 sm:px-6 sm:py-7"
+                className="community-workspace__messages flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-5 sm:px-6 sm:py-7"
               >
-                {channelsLoading || messagesLoading ? (
+                {channelsLoading ? (
                   <p role="status" className="m-auto inline-flex items-center gap-2 text-sm text-neutral-500">
                     <LoaderCircle size={16} className="animate-spin" />
                     Loading conversation...
@@ -971,36 +1268,196 @@ export default function CommunityWorkspacePage({ profile }) {
                   <p className="m-auto text-sm text-neutral-500">
                     Choose a channel to view its conversation.
                   </p>
-                ) : messagesError ? (
-                  <p role="alert" className="m-auto text-sm text-red-700">
-                    {messagesError}
-                  </p>
-                ) : !displayedMessages.length ? (
-                  <div className="m-auto max-w-sm text-center">
-                    <MessageCircle className="mx-auto text-neutral-400" size={24} />
-                    <p className="mt-3 text-sm text-neutral-600">
-                      No messages in this channel yet. Start the conversation.
-                    </p>
-                  </div>
                 ) : (
-                  displayedMessages.map((message) => (
+                  <>
+                    <div
+                      className={`community-workspace__welcome ${
+                        displayedMessages.length
+                          ? "community-workspace__welcome--with-messages"
+                          : ""
+                      }`}
+                    >
+                    <div className="community-workspace__welcome-content">
+                      <span className="community-workspace__welcome-mark">
+                        <UsersRound size={28} aria-hidden="true" />
+                      </span>
+                      <p className="community-workspace__welcome-eyebrow">
+                        Smart Community
+                      </p>
+                      <h3>
+                        Welcome to {selectedServer.name}
+                      </h3>
+                      <p className="community-workspace__welcome-description">
+                        {selectedServer.description?.trim() ||
+                          `This is the start of your community. Say hello in #${selectedChannel.name} and help make it your own.`}
+                      </p>
+                      <div className="community-workspace__welcome-grid">
+                        <article className="community-workspace__welcome-card">
+                          <span className="community-workspace__welcome-card-icon">
+                            <UserPlus size={20} aria-hidden="true" />
+                          </span>
+                          <div>
+                            <h4>Invite your friends</h4>
+                            <p>Share an invite and welcome others in.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={copyCommunityInvite}
+                            className="community-workspace__welcome-action"
+                          >
+                            {selectedServer.invite_link ||
+                            selectedServer.invite_code
+                              ? "Copy invite"
+                              : "Find invite options"}
+                          </button>
+                        </article>
+                        <article className="community-workspace__welcome-card">
+                          <span className="community-workspace__welcome-card-icon">
+                            <Settings2 size={20} aria-hidden="true" />
+                          </span>
+                          <div>
+                            <h4>Personalize your community</h4>
+                            <p>Update its name and description.</p>
+                          </div>
+                          <Link
+                            to="/dashboard#my-communities"
+                            className="community-workspace__welcome-action"
+                          >
+                            Manage community
+                          </Link>
+                        </article>
+                        <article className="community-workspace__welcome-card">
+                          <span className="community-workspace__welcome-card-icon">
+                            <Send size={20} aria-hidden="true" />
+                          </span>
+                          <div>
+                            <h4>
+                              {hasCurrentUserMessage
+                                ? "First message sent"
+                                : "Send your first message"}
+                            </h4>
+                            {hasCurrentUserMessage && (
+                              <span className="community-workspace__welcome-complete">
+                                <Check size={12} aria-hidden="true" />
+                                Completed
+                              </span>
+                            )}
+                            <p>
+                              {hasCurrentUserMessage
+                                ? `You started the conversation in #${selectedChannel.name}.`
+                                : `Start a conversation in #${selectedChannel.name}.`}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => messageComposerRef.current?.focus()}
+                            className="community-workspace__welcome-action"
+                          >
+                            {hasCurrentUserMessage
+                              ? "Write another message"
+                              : "Write a message"}
+                          </button>
+                        </article>
+                        <article className="community-workspace__welcome-card">
+                          <span className="community-workspace__welcome-card-icon">
+                            <Hash size={20} aria-hidden="true" />
+                          </span>
+                          <div>
+                            <h4>Explore community channels</h4>
+                            <p>
+                              {availableChannels.length > 1
+                                ? `${availableChannels.length} channels are ready to explore.`
+                                : "Create more channels for different conversations."}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={exploreChannels}
+                            className="community-workspace__welcome-action"
+                          >
+                            {availableChannels.length > 1
+                              ? "Show channels"
+                              : "View channel"}
+                          </button>
+                        </article>
+                        <article className="community-workspace__welcome-card">
+                          <span className="community-workspace__welcome-card-icon">
+                            <Info size={20} aria-hidden="true" />
+                          </span>
+                          <div>
+                            <h4>View community information</h4>
+                            <p>See the details shared by this community.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCommunityInfoOpen(true)}
+                            className="community-workspace__welcome-action"
+                          >
+                            View information
+                          </button>
+                        </article>
+                      </div>
+                      {welcomeActionMessage && (
+                        <p
+                          role="status"
+                          className="community-workspace__welcome-feedback"
+                        >
+                          {welcomeActionMessage}
+                        </p>
+                      )}
+                    </div>
+                    </div>
+                    {(nextMessageCursor || olderMessagesError) && (
+                      <div className="community-workspace__history-control">
+                        {olderMessagesError && (
+                          <p role="alert">{olderMessagesError}</p>
+                        )}
+                        {nextMessageCursor && (
+                          <button
+                            type="button"
+                            onClick={handleLoadOlderMessages}
+                            disabled={loadingOlderMessages}
+                          >
+                            {loadingOlderMessages
+                              ? "Loading older messages..."
+                              : olderMessagesError
+                                ? "Retry loading older messages"
+                                : "Load older messages"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {messagesLoading ? (
+                      <p
+                        role="status"
+                        className="m-auto inline-flex items-center gap-2 text-sm text-neutral-500"
+                      >
+                        <LoaderCircle size={16} className="animate-spin" />
+                        Loading conversation...
+                      </p>
+                    ) : messagesError ? (
+                      <p role="alert" className="m-auto text-sm text-red-700">
+                        {messagesError}
+                      </p>
+                    ) : (
+                      displayedMessages.map((message) => (
                     <article
                       key={message.id}
-                      className="mx-auto flex w-full max-w-4xl items-start gap-3"
+                      className="community-workspace__message mx-auto flex w-full max-w-4xl items-start gap-3"
                     >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-xs font-semibold text-neutral-700">
+                      <span className="community-workspace__avatar flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-xs font-semibold text-neutral-700">
                         {message.author?.display_name?.[0]?.toUpperCase() || "?"}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-baseline gap-x-2">
-                            <span className="text-sm font-semibold">
+                          <div className="community-workspace__message-meta flex flex-wrap items-baseline gap-x-2">
+                            <span className="community-workspace__author text-sm font-semibold">
                               {message.author?.display_name || "Community member"}
                             </span>
                             {message.created_at && (
                               <time
                                 dateTime={message.created_at}
-                                className="text-[11px] text-neutral-400"
+                                className="community-workspace__timestamp text-[11px] text-neutral-400"
                               >
                                 {new Date(message.created_at).toLocaleString()}
                               </time>
@@ -1122,6 +1579,9 @@ export default function CommunityWorkspacePage({ profile }) {
                     </article>
                   ))
                 )}
+                <div ref={messageListEndRef} aria-hidden="true" />
+                  </>
+                )}
               </div>
 
               {messagesError && selectedChannel && !messagesLoading && (
@@ -1138,24 +1598,29 @@ export default function CommunityWorkspacePage({ profile }) {
 
               <form
                 onSubmit={handleSendMessage}
-                className="flex shrink-0 gap-2 border-t border-neutral-200 bg-white p-3 sm:p-4"
+                className="community-workspace__composer flex shrink-0 gap-2 border-t border-neutral-200 bg-white p-3 sm:p-4"
               >
                 <label className="sr-only" htmlFor="workspace-message-draft">
                   Write a message
                 </label>
-                <input
+                <span className="sr-only">
+                  Press Enter to send. Press Shift+Enter for a new line.
+                </span>
+                <textarea
                   ref={messageComposerRef}
                   id="workspace-message-draft"
                   maxLength={2000}
+                  rows={1}
                   value={messageDraft}
                   onChange={(event) => setMessageDraft(event.target.value)}
+                  onKeyDown={handleMessageComposerKeyDown}
                   disabled={!selectedChannel || sendingMessage}
                   placeholder={
                     selectedChannel
                       ? `Message #${selectedChannel.name}`
                       : "Choose a channel to message"
                   }
-                  className="mx-auto min-w-0 max-w-4xl flex-1 rounded-xl border border-neutral-200 px-4 py-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-neutral-500 focus:ring-2 focus:ring-neutral-100 disabled:bg-neutral-50"
+                  className="community-workspace__composer-input mx-auto min-w-0 max-w-4xl flex-1 rounded-xl border border-neutral-200 px-4 py-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-neutral-500 focus:ring-2 focus:ring-neutral-100 disabled:bg-neutral-50"
                 />
                 <button
                   type="submit"
@@ -1165,7 +1630,7 @@ export default function CommunityWorkspacePage({ profile }) {
                     sendingMessage
                   }
                   aria-label="Send message"
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-neutral-300"
+                  className="community-workspace__send-button flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-neutral-300"
                 >
                   {sendingMessage ? (
                     <LoaderCircle size={17} className="animate-spin" />
@@ -1375,6 +1840,75 @@ export default function CommunityWorkspacePage({ profile }) {
             </section>
           </div>
         )}
+      {communityInfoOpen && selectedServer && (
+        <div
+          className="community-workspace__overlay fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/60 p-4 backdrop-blur-[2px]"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setCommunityInfoOpen(false);
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="workspace-community-info-title"
+            className="community-workspace__dialog w-full max-w-md rounded-2xl border border-neutral-200 bg-white shadow-2xl"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-5">
+              <div>
+                <h2
+                  id="workspace-community-info-title"
+                  className="text-lg font-semibold"
+                >
+                  {selectedServer.name}
+                </h2>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Community information
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCommunityInfoOpen(false)}
+                aria-label="Close community information"
+                className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <div className="space-y-4 p-5">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                  About
+                </h3>
+                <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-neutral-700">
+                  {selectedServer.description?.trim() ||
+                    "No community description has been provided."}
+                </p>
+              </div>
+              {selectedServer.created_at && (
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                    Created
+                  </h3>
+                  <p className="mt-1 text-sm text-neutral-700">
+                    {new Date(selectedServer.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
+              <footer className="border-t border-neutral-100 pt-4">
+                <Link
+                  to="/dashboard#my-communities"
+                  onClick={() => setCommunityInfoOpen(false)}
+                  className="community-workspace__welcome-action"
+                >
+                  Manage community settings
+                </Link>
+              </footer>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

@@ -72,6 +72,10 @@ if (!otp.trim()) {
   setError("Enter the OTP sent to your email.");
   return;
 }
+if (otp.trim().length !== 6) {
+  setError("The OTP must contain exactly 6 characters.");
+  return;
+}
 
 setLoading(true);
 
@@ -82,7 +86,9 @@ try {
   });
 
   if (!response.data?.reset_token) {
-    setError("OTP verification response did not contain a reset token.");
+    setError(
+      "OTP verification succeeded, but the API did not return a reset token. Password reset requires a backend response containing reset_token.",
+    );
     return;
   }
 
@@ -248,6 +254,7 @@ return ( <main className="flex min-h-screen items-center justify-center bg-slate
             <input
               id="otp"
               type="text"
+              maxLength={6}
               value={otp}
               onChange={(e) => {
                 setOtp(e.target.value);

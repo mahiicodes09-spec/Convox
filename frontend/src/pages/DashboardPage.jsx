@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bell,
@@ -78,6 +84,34 @@ function getChannelServerId(channel) {
     return server.id == null ? null : String(server.id);
   }
   return server == null ? null : String(server);
+}
+
+function getNextCursor(next) {
+  if (!next) {
+    return "";
+  }
+  const cursor = new URL(next, window.location.origin).searchParams.get(
+    "cursor",
+  );
+  if (!cursor) {
+    throw new Error("The message pagination link did not contain a cursor.");
+  }
+  return cursor;
+}
+
+function mergeMessagesChronologically(existing, incoming) {
+  const messagesById = new Map(
+    existing.map((message) => [String(message.id), message]),
+  );
+  incoming.forEach((message) => {
+    if (!messagesById.has(String(message.id))) {
+      messagesById.set(String(message.id), message);
+    }
+  });
+  return [...messagesById.values()].sort(
+    (left, right) =>
+      Date.parse(left.created_at) - Date.parse(right.created_at),
+  );
 }
 
 /**
@@ -211,6 +245,14 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const selectedChannelIdRef = useRef(selectedChannelId);
   const pendingCreatedChannelRef = useRef(null);
   const [messages, setMessages] = useState([]);
+  const [messagesServerId, setMessagesServerId] = useState("");
+  const [messagesChannelId, setMessagesChannelId] = useState("");
+  const [nextMessageCursor, setNextMessageCursor] = useState("");
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessagesError, setOlderMessagesError] = useState("");
+  const olderMessagesRequestRef = useRef(null);
+  const olderMessagesRequestIdRef = useRef(0);
+  const messageSelectionVersionRef = useRef(0);
   const [serversLoading, setServersLoading] = useState(true);
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -291,7 +333,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
 
   // Keep refs current for asynchronous handlers and fetch effects without
   // reading or changing ref values during rendering.
-  useEffect(() => {
+  useLayoutEffect(() => {
     selectedServerIdRef.current = selectedServerId;
     selectedChannelIdRef.current = selectedChannelId;
   }, [selectedChannelId, selectedServerId]);
@@ -318,6 +360,11 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
           setChannelsError("");
           setSelectedChannelId("");
           setMessages([]);
+          setMessagesServerId("");
+          setMessagesChannelId("");
+          setNextMessageCursor("");
+          setOlderMessagesError("");
+          setLoadingOlderMessages(false);
           setMessagesError("");
           setMessagesLoading(false);
           setSelectedServerId((currentId) => {
@@ -361,12 +408,19 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
 
     let active = true;
     const previouslySelectedChannelId = selectedChannelIdRef.current;
+    messageSelectionVersionRef.current += 1;
 
     async function loadChannels() {
       setChannelsLoading(true);
       setChannelsError("");
       setChannels([]);
       setMessages([]);
+      setMessagesServerId("");
+      setMessagesChannelId("");
+      setNextMessageCursor("");
+      setOlderMessagesError("");
+      setLoadingOlderMessages(false);
+      olderMessagesRequestRef.current = null;
       setMessagesError("");
       setMessagesLoading(false);
       setSelectedChannelId("");
@@ -441,31 +495,54 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   // GET /channels/{id}/messages/ returns a cursor-paginated object with a
   // `results` array. This first dashboard view loads the first page only.
   useEffect(() => {
-    if (!selectedChannelId) {
+    if (!selectedChannelId || !selectedServerId) {
       return undefined;
     }
 
     let active = true;
+    const targetServerId = selectedServerId;
+    const targetChannelId = selectedChannelId;
+    const requestVersion = ++messageSelectionVersionRef.current;
 
     async function loadMessages() {
       setMessagesLoading(true);
       setMessagesError("");
       setMessages([]);
+      setMessagesServerId("");
+      setMessagesChannelId("");
+      setNextMessageCursor("");
+      setOlderMessagesError("");
+      setLoadingOlderMessages(false);
+      olderMessagesRequestRef.current = null;
 
       try {
         const response = await api.get(
-          `/channels/${selectedChannelId}/messages/`,
+          `/channels/${targetChannelId}/messages/`,
         );
         const page = response.data;
         if (!Array.isArray(page?.results)) {
           throw new Error("The messages response did not contain a results list.");
         }
+        const nextCursor = getNextCursor(page.next);
 
-        if (active) {
-          setMessages(page.results);
+        if (
+          active &&
+          messageSelectionVersionRef.current === requestVersion &&
+          selectedServerIdRef.current === targetServerId &&
+          selectedChannelIdRef.current === targetChannelId
+        ) {
+          setMessages(mergeMessagesChronologically([], page.results));
+          setMessagesServerId(targetServerId);
+          setMessagesChannelId(targetChannelId);
+          setNextMessageCursor(nextCursor);
         }
       } catch (error) {
-        if (active) {
+        if (
+          active &&
+          messageSelectionVersionRef.current === requestVersion &&
+          selectedServerIdRef.current === targetServerId &&
+          selectedChannelIdRef.current === targetChannelId
+        ) {
           handleRequestError(
             error,
             setMessagesError,
@@ -473,7 +550,12 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
           );
         }
       } finally {
-        if (active) {
+        if (
+          active &&
+          messageSelectionVersionRef.current === requestVersion &&
+          selectedServerIdRef.current === targetServerId &&
+          selectedChannelIdRef.current === targetChannelId
+        ) {
           setMessagesLoading(false);
         }
       }
@@ -483,7 +565,66 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     return () => {
       active = false;
     };
-  }, [handleRequestError, selectedChannelId]);
+  }, [handleRequestError, selectedChannelId, selectedServerId]);
+
+  async function handleLoadOlderMessages() {
+    const targetServerId = selectedServerId;
+    const targetChannelId = selectedChannelId;
+    const cursor = nextMessageCursor;
+    const requestKey = `${targetServerId}:${targetChannelId}:${cursor}`;
+    const requestVersion = messageSelectionVersionRef.current;
+    if (
+      !targetServerId ||
+      !targetChannelId ||
+      !cursor ||
+      loadingOlderMessages ||
+      olderMessagesRequestRef.current
+    ) {
+      return;
+    }
+
+    const requestId = ++olderMessagesRequestIdRef.current;
+    olderMessagesRequestRef.current = { id: requestId, key: requestKey };
+    setLoadingOlderMessages(true);
+    setOlderMessagesError("");
+    try {
+      const response = await api.get(
+        `/channels/${targetChannelId}/messages/`,
+        { params: { cursor } },
+      );
+      if (!Array.isArray(response.data?.results)) {
+        throw new Error("The messages response did not contain a results list.");
+      }
+      const nextCursor = getNextCursor(response.data.next);
+      if (
+        selectedServerIdRef.current === targetServerId &&
+        messageSelectionVersionRef.current === requestVersion &&
+        selectedChannelIdRef.current === targetChannelId &&
+        messagesServerId === targetServerId &&
+        messagesChannelId === targetChannelId
+      ) {
+        setMessages((currentMessages) =>
+          mergeMessagesChronologically(currentMessages, response.data.results),
+        );
+        setNextMessageCursor(nextCursor);
+      }
+    } catch (error) {
+      if (
+        selectedServerIdRef.current === targetServerId &&
+        messageSelectionVersionRef.current === requestVersion &&
+        selectedChannelIdRef.current === targetChannelId
+      ) {
+        setOlderMessagesError(
+          getApiErrorMessage(error, "Could not load older messages."),
+        );
+      }
+    } finally {
+      if (olderMessagesRequestRef.current?.id === requestId) {
+        olderMessagesRequestRef.current = null;
+        setLoadingOlderMessages(false);
+      }
+    }
+  }
 
   const selectedServer = servers.find(
     (server) => String(server.id) === selectedServerId,
@@ -491,6 +632,11 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const selectedChannel = channels.find(
     (channel) => String(channel.id) === selectedChannelId,
   );
+  const displayedMessages =
+    messagesServerId === selectedServerId &&
+    messagesChannelId === selectedChannelId
+      ? messages
+      : [];
   const displayName = profile?.display_name?.trim();
 
   // Search is intentionally limited to server names and descriptions already
@@ -1052,22 +1198,50 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       return;
     }
 
+    const targetServerId = selectedServerId;
+    const targetChannelId = selectedChannelId;
+    const requestVersion = messageSelectionVersionRef.current;
     setSendingMessage(true);
     setMessagesError("");
 
     try {
       const response = await api.post(
-        `/channels/${selectedChannelId}/messages/`,
+        `/channels/${targetChannelId}/messages/`,
         { content },
       );
-      setMessages((currentMessages) => [...currentMessages, response.data]);
-      setMessageDraft("");
+      if (
+        selectedServerIdRef.current === targetServerId &&
+        selectedChannelIdRef.current === targetChannelId &&
+        messageSelectionVersionRef.current === requestVersion
+      ) {
+        if (String(response.data?.channel) !== targetChannelId) {
+          throw new Error("The message response did not match the selected channel.");
+        }
+        setMessages((currentMessages) =>
+          mergeMessagesChronologically(
+            messagesServerId === targetServerId &&
+              messagesChannelId === targetChannelId
+              ? currentMessages
+              : [],
+            [response.data],
+          ),
+        );
+        setMessagesServerId(targetServerId);
+        setMessagesChannelId(targetChannelId);
+        setMessageDraft("");
+      }
     } catch (error) {
-      handleRequestError(
-        error,
-        setMessagesError,
-        "Your message could not be sent. Please try again.",
-      );
+      if (
+        selectedServerIdRef.current === targetServerId &&
+        selectedChannelIdRef.current === targetChannelId &&
+        messageSelectionVersionRef.current === requestVersion
+      ) {
+        handleRequestError(
+          error,
+          setMessagesError,
+          "Your message could not be sent. Please try again.",
+        );
+      }
     } finally {
       setSendingMessage(false);
     }
@@ -1629,37 +1803,62 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                       No channels are available in this community yet.
                     </p>
                   </div>
-                ) : !messages.length ? (
+                ) : !displayedMessages.length ? (
                   <p className="m-auto text-center text-sm text-neutral-500">
                     No messages in this channel yet. Start the conversation.
                   </p>
                 ) : (
-                  messages.map((message) => (
-                    <article
-                      key={message.id}
-                      className="flex items-start gap-3"
-                    >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xs font-semibold text-neutral-700">
-                        {message.author?.display_name?.[0]?.toUpperCase() || "?"}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                          <span className="text-sm font-semibold">
-                            {message.author?.display_name || "Community member"}
-                          </span>
-                          <time
-                            dateTime={message.created_at}
-                            className="text-[11px] text-neutral-400"
+                  <>
+                    {(nextMessageCursor || olderMessagesError) && (
+                      <div className="order-first flex flex-col items-center gap-2">
+                        {olderMessagesError && (
+                          <p role="alert" className="text-sm text-neutral-600">
+                            {olderMessagesError}
+                          </p>
+                        )}
+                        {nextMessageCursor && (
+                          <button
+                            type="button"
+                            onClick={handleLoadOlderMessages}
+                            disabled={loadingOlderMessages}
+                            className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 disabled:cursor-wait disabled:opacity-60"
                           >
-                            {new Date(message.created_at).toLocaleString()}
-                          </time>
-                        </div>
-                        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-neutral-700">
-                          {message.content}
-                        </p>
+                            {loadingOlderMessages
+                              ? "Loading older messages..."
+                              : olderMessagesError
+                                ? "Retry loading older messages"
+                                : "Load older messages"}
+                          </button>
+                        )}
                       </div>
-                    </article>
-                  ))
+                    )}
+                    {displayedMessages.map((message) => (
+                      <article
+                        key={message.id}
+                        className="flex items-start gap-3"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xs font-semibold text-neutral-700">
+                          {message.author?.display_name?.[0]?.toUpperCase() || "?"}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                            <span className="text-sm font-semibold">
+                              {message.author?.display_name || "Community member"}
+                            </span>
+                            <time
+                              dateTime={message.created_at}
+                              className="text-[11px] text-neutral-400"
+                            >
+                              {new Date(message.created_at).toLocaleString()}
+                            </time>
+                          </div>
+                          <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-neutral-700">
+                            {message.content}
+                          </p>
+                        </div>
+                      </article>
+                    ))}
+                  </>
                 )}
               </div>
 

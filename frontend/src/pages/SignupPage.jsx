@@ -110,8 +110,8 @@ if (!trimmedName) {
   newErrors.name = "Full name is required.";
 } else if (trimmedName.length < 2) {
   newErrors.name = "Name must contain at least 2 characters.";
-} else if (trimmedName.length > 60) {
-  newErrors.name = "Name cannot exceed 60 characters.";
+} else if (trimmedName.length > 50) {
+  newErrors.name = "Name cannot exceed 50 characters.";
 } else if (
   !/^[\p{L}\p{M}]+(?:[ .'-][\p{L}\p{M}]+)*\.?$/u.test(trimmedName)
 ) {
@@ -272,6 +272,7 @@ return ( <main className="flex min-h-screen items-center justify-center bg-slate
           id="name"
           name="name"
           type="text"
+          maxLength={50}
           value={form.name}
           onChange={handleChange}
           placeholder="Enter your full name"
