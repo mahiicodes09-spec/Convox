@@ -23,6 +23,7 @@ User = get_user_model()
 class RegisterView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_scope = "otp"
 
     @extend_schema(request=RegisterSerializer)
     def post(self, request):
@@ -39,6 +40,7 @@ class RegisterView(APIView):
 class VerifyOTPView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_scope = "otp"
 
     @extend_schema(request=OTPValidateSerializer)
     def post(self, request):
@@ -70,6 +72,7 @@ class VerifyOTPView(APIView):
 class ResendVerificationView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_scope = "otp"
 
     @extend_schema(request=OTPSerializer)
     def post(self, request):
@@ -80,6 +83,7 @@ class ResendVerificationView(APIView):
 
 
 class LoginView(TokenObtainPairView):
+    throttle_scope = "login"
     def post(self, request, *args, **kwargs):
         email = str(request.data.get("email", "")).lower()
         if is_login_locked(email):
@@ -110,6 +114,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
 class ForgotPasswordView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_scope = "otp"
 
     @extend_schema(request=OTPSerializer, responses={200: None})
     def post(self, request):
@@ -126,6 +131,7 @@ class ForgotPasswordView(APIView):
 class VerifyResetOTPView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_scope = "otp"
 
     @extend_schema(request=OTPValidateSerializer, responses={200: None})
     def post(self, request):
@@ -142,6 +148,7 @@ class VerifyResetOTPView(APIView):
 class ResetPasswordView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_scope = "otp"
 
     @extend_schema(request=ResetPasswordSerializer, responses={200: None})
     def post(self, request):

@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from .serializers import InvitePreviewSerializer, JoinServerSerializer, ServerSerializer, ChannelSerializer, MemberSerializer
 from .models import Server, ServerMember, Channel
 from .permissions import IsServerOwnerOrReadOnly
+from rest_framework.filters import SearchFilter
 # Create your views here.
 
 
@@ -82,11 +83,16 @@ class ChannelListCreateView(generics.ListCreateAPIView):
 class MemberListView(generics.ListAPIView):
     serializer_class = MemberSerializer
     permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter]
+    search_fields = ["user__display_name"]
 
     def get_queryset(self):
         server = get_object_or_404(Server, id=self.kwargs["server_id"], members__user=self.request.user)
-        return ServerMember.objects.filter(server=server).select_related("user").order_by("joined_at")
-
+        queryset = ServerMember.objects.filter(server=server).select_related("user").order_by("joined_at")
+        role = self.request.query_params.get("role")
+        if role:
+            queryset = queryset.filter(role=role)
+        return queryset
 
 class MemberRoleView(generics.UpdateAPIView):
     serializer_class = MemberSerializer

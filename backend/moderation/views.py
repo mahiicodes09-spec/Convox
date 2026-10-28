@@ -2,18 +2,25 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from chat.models import Message
-from communities.models import Server
 from .models import ModerationLog
 from .permissions import is_moderator
 from .serializers import ActionSerializer, FlaggedMessageSerializer, ModerationLogSerializer
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from communities.models import Server, ServerMember
+from datetime import timedelta
+from django.utils import timezone
+from rest_framework.pagination import PageNumberPagination
 # Create your views here.
 
-
+ROLE_RANK = {"member": 0, "moderator": 1, "admin": 2, "owner": 3}
+class StandardPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
 def get_server_for_moderator(user, server_id):
     server = get_object_or_404(Server, id=server_id, members__user=user)
     if not is_moderator(user, server):
@@ -24,6 +31,7 @@ def get_server_for_moderator(user, server_id):
 class ModerationQueueView(generics.ListAPIView):
     serializer_class = FlaggedMessageSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         server = get_server_for_moderator(self.request.user, self.kwargs["server_id"])
@@ -50,7 +58,23 @@ class ModerationActionView(APIView):
         s = ActionSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         action = s.validated_data["action"]
-
+        if action in ("dismiss", "warn") and message.moderation_status != "flagged":
+            raise ValidationError({"detail": "Ye message flagged nahi hai."})
+        if action in ("mute", "suspend") and message.moderation_status not in ("flagged", "reviewed"):
+            raise ValidationError({"detail": "Sirf flagged ya reviewed message par mute/suspend ho sakta hai."})
+        my_role = ServerMember.objects.get(server=server, user=request.user).role
+        target_member = ServerMember.objects.filter(server=server, user=message.author).first()
+        target_rank = ROLE_RANK[target_member.role] if target_member else 0
+        if ROLE_RANK[my_role] <= target_rank:
+            raise PermissionDenied("Apne barabar ya upar ke role par action nahi le sakte.")
+        expires_at = None
+        if action in ("mute", "suspend"):
+            minutes = s.validated_data.get("duration_minutes")
+            if not minutes:
+                raise ValidationError({"duration_minutes": "Mute/suspend ke liye ye zaroori hai."})
+            if target_member is None:
+                raise ValidationError({"detail": "User ab is server mein nahi hai."})
+            expires_at = timezone.now() + timedelta(minutes=minutes)
         with transaction.atomic():
             log = ModerationLog.objects.create(
                 server=server,
@@ -61,6 +85,7 @@ class ModerationActionView(APIView):
                 reason=s.validated_data["reason"],
                 toxicity_label=message.toxicity_label,
                 toxicity_score=message.toxicity_score,
+                expires_at=expires_at,
             )
             if action == "dismiss":
                 message.moderation_status = "clean"
@@ -70,6 +95,12 @@ class ModerationActionView(APIView):
                 message.save(update_fields=["moderation_status"])
             elif action == "remove":
                 message.delete()
+            elif action in ("mute", "suspend"):
+                field = "muted_until" if action == "mute" else "suspended_until"
+                setattr(target_member, field, expires_at)
+                target_member.save(update_fields=[field])
+                message.moderation_status = "reviewed"
+                message.save(update_fields=["moderation_status"])
 
         return Response(ModerationLogSerializer(log).data, status=status.HTTP_201_CREATED)
 
@@ -77,6 +108,7 @@ class ModerationActionView(APIView):
 class ModerationLogListView(generics.ListAPIView):
     serializer_class = ModerationLogSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         server = get_server_for_moderator(self.request.user, self.kwargs["server_id"])
