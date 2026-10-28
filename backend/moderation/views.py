@@ -13,9 +13,14 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from communities.models import Server, ServerMember
 from datetime import timedelta
 from django.utils import timezone
+from rest_framework.pagination import PageNumberPagination
 # Create your views here.
 
 ROLE_RANK = {"member": 0, "moderator": 1, "admin": 2, "owner": 3}
+class StandardPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
 def get_server_for_moderator(user, server_id):
     server = get_object_or_404(Server, id=server_id, members__user=user)
     if not is_moderator(user, server):
@@ -26,6 +31,7 @@ def get_server_for_moderator(user, server_id):
 class ModerationQueueView(generics.ListAPIView):
     serializer_class = FlaggedMessageSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         server = get_server_for_moderator(self.request.user, self.kwargs["server_id"])
@@ -102,6 +108,7 @@ class ModerationActionView(APIView):
 class ModerationLogListView(generics.ListAPIView):
     serializer_class = ModerationLogSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         server = get_server_for_moderator(self.request.user, self.kwargs["server_id"])
