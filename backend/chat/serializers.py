@@ -18,3 +18,11 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = ["id", "channel", "author", "content", "created_at", "edited_at", "moderation_status"]
         read_only_fields = ["channel", "created_at", "edited_at", "moderation_status"]
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if instance.moderation_status in ("flagged", "reviewed"):
+            request = self.context.get("request")
+            is_author = request is not None and request.user == instance.author
+            if not is_author:
+                data["content"] = "*" * len(instance.content)
+        return data

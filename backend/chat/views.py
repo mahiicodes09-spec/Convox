@@ -5,6 +5,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from communities.models import Channel, ServerMember
+from moderation.permissions import get_restriction
 from .models import Message
 from .moderation import moderate
 from .serializers import MessageSerializer
@@ -28,8 +29,12 @@ class MessageListCreateView(generics.ListCreateAPIView):
         return Message.objects.filter(channel=self.get_channel()).select_related("author")
 
     def perform_create(self, serializer):
+        channel = self.get_channel()
+        restriction = get_restriction(self.request.user, channel.server)
+        if restriction:
+            raise PermissionDenied(f"Aap abhi {restriction} hain, message nahi bhej sakte.")
         content = serializer.validated_data["content"]
-        serializer.save(channel=self.get_channel(), author=self.request.user, **moderate(content))
+        serializer.save(channel=channel, author=self.request.user, **moderate(content))
 
 
 class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):

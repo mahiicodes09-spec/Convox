@@ -39,6 +39,8 @@ class ServerMember(models.Model):
     )
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default="member")
     joined_at = models.DateTimeField(auto_now_add=True)
+    muted_until = models.DateTimeField(null=True, blank=True)
+    suspended_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

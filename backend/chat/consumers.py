@@ -4,6 +4,7 @@ from communities.models import Channel
 from .models import Message
 from .moderation import moderate
 from .serializers import MessageSerializer
+from moderation.permissions import get_restriction
 
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
@@ -31,6 +32,11 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             await self.send_json({"type": "error", "detail": "Message 2000 characters se lamba hai."})
             return
 
+        restriction = await self.get_restriction()
+        if restriction:
+            await self.send_json({"type": "error", "detail": f"Aap abhi {restriction} hain, message nahi bhej sakte."})
+            return
+        
         message = await self.save_message(text)
         await self.channel_layer.group_send(self.group_name, {
             "type": "chat.message",
@@ -48,3 +54,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     def save_message(self, text):
         message = Message.objects.create(channel_id=self.channel_id, author=self.user, content=text, **moderate(text))
         return dict(MessageSerializer(message).data)
+    @database_sync_to_async
+    def get_restriction(self):
+        channel = Channel.objects.select_related("server").get(id=self.channel_id)
+        return get_restriction(self.user, channel.server)

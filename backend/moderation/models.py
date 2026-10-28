@@ -8,6 +8,8 @@ class ModerationLog(models.Model):
         ("dismiss", "Dismiss"),
         ("warn", "Warn"),
         ("remove", "Remove"),
+        ("mute", "Mute"),
+        ("suspend", "Suspend"),
     ]
     server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name="moderation_logs")
     actor = models.ForeignKey(
@@ -28,6 +30,7 @@ class ModerationLog(models.Model):
     reason = models.TextField(max_length=500)
     toxicity_label = models.CharField(max_length=50, blank=True)
     toxicity_score = models.FloatField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

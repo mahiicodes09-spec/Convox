@@ -15,9 +15,9 @@ class FlaggedMessageSerializer(serializers.ModelSerializer):
 
 
 class ActionSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=["dismiss", "warn", "remove"])
+    action = serializers.ChoiceField(choices=["dismiss", "warn", "remove", "mute", "suspend"])
     reason = serializers.CharField(max_length=500)
-
+    duration_minutes = serializers.IntegerField(required=False, min_value=1, max_value=10080)
 
 class ModerationLogSerializer(serializers.ModelSerializer):
     actor = AuthorSerializer(read_only=True)
