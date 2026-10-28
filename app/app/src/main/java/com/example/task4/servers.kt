@@ -14,6 +14,11 @@ import com.example.task4.ServerAdapter.ServerAdapter
 import com.example.task4.server.ServerRequest
 import com.example.task4.server.ServerResponse
 import com.example.task4.server.ServerVM
+import android.widget.TextView
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
+import com.example.task4.member.MembersActivity
+import com.google.android.material.navigation.NavigationView
 
 class ServersActivity : AppCompatActivity() {
 
@@ -25,10 +30,109 @@ class ServersActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_servers)
 
+
+        val drawerLayout = findViewById<DrawerLayout>(R.id.drawerLayout)
+        val navView = findViewById<NavigationView>(R.id.navView)
         rvServers = findViewById(R.id.rvServers)
         rvServers.layoutManager = LinearLayoutManager(this)
 
         viewModel = ViewModelProvider(this)[ServerVM::class.java]
+
+        findViewById<TextView>(R.id.btnMenu).setOnClickListener {
+            drawerLayout.openDrawer(GravityCompat.START)
+        }
+
+
+        navView.setNavigationItemSelectedListener { item ->
+
+            when (item.itemId) {
+
+                R.id.menu_servers -> {
+                }
+
+                R.id.menu_profile -> {
+                    startActivity(
+                        Intent(this, ProfileActivity::class.java)
+                    )
+                }
+
+                R.id.nav_members -> {
+                    val servers = viewModel.servers.value.orEmpty()
+
+                    if (servers.isEmpty()) {
+                        Toast.makeText(
+                            this,
+                            "No servers found",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        val serverNames =
+                            servers.map { it.name }.toTypedArray()
+
+                        AlertDialog.Builder(this)
+                            .setTitle("Select a server")
+                            .setItems(serverNames) { _, position ->
+
+                                val selectedServer = servers[position]
+
+                                val membersIntent = Intent(
+                                    this,
+                                    MembersActivity::class.java
+                                )
+
+                                membersIntent.putExtra(
+                                    "serverId",
+                                    selectedServer.id
+                                )
+
+                                startActivity(membersIntent)
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .show()
+                    }
+                }
+                R.id.nav_moderator -> {
+                    val servers = viewModel.servers.value.orEmpty()
+
+                    if (servers.isEmpty()) {
+                        Toast.makeText(
+                            this,
+                            "No servers found",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        val serverNames = servers.map { it.name }.toTypedArray()
+
+                        AlertDialog.Builder(this)
+                            .setTitle("Select a server")
+                            .setItems(serverNames) { _, position ->
+                                val selectedServer = servers[position]
+
+                                val intent = Intent(this, ModeratorActivity::class.java)
+                                intent.putExtra("serverId", selectedServer.id)
+                                intent.putExtra("serverName", selectedServer.name)
+                                startActivity(intent)
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .show()
+                    }
+                }
+            }
+
+
+            drawerLayout.closeDrawer(GravityCompat.START)
+            true
+        }
+
+
+
+
+
+
+
+
+
+
 
         viewModel.servers.observe(this) { list ->
             rvServers.adapter = ServerAdapter(
@@ -73,6 +177,7 @@ class ServersActivity : AppCompatActivity() {
                 viewModel.joinServer(code.trim())
             }
         }
+
 
         viewModel.loadServers()
     }

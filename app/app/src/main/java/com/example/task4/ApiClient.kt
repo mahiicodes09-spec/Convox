@@ -12,6 +12,9 @@ import java.util.concurrent.TimeUnit
 import com.example.task4.channel.ChannelInterface
 import com.example.task4.message.MessageInterface
 import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.http.GET
+import retrofit2.http.Header
+import com.example.task4.member.MemberInterface
 
 data class RegisterRequest(
     val email: String,
@@ -33,6 +36,16 @@ data class EmailRequest(val email: String)
 data class LoginRequest(val email: String, val password: String)
 
 data class LoginResponse(val access: String, val refresh: String)
+
+data class ProfileResponse(
+    val id: Int,
+    val email: String,
+    val display_name: String
+)
+
+data class LogoutRequest(
+    val refresh: String
+)
 
 interface ApiService {
 
@@ -56,6 +69,15 @@ interface ApiService {
 
     @POST("api/auth/reset-password/")
     suspend fun resetPassword(@Body body: ResetPasswordRequest): Response<ResponseBody>
+
+    @GET("api/auth/me/")
+    suspend fun getMe(@Header("Authorization") token: String): Response<ProfileResponse>
+
+    @POST("api/auth/logout/")
+    suspend fun logout(
+        @Header("Authorization") token: String,
+        @Body body: LogoutRequest
+    ): Response<Unit>
 }
 
 object ApiClient {
@@ -99,6 +121,9 @@ object ApiClient {
 
     val api: ApiService by lazy {
         retrofit.create(ApiService::class.java)
+    }
+    val memberApi: MemberInterface by lazy {
+        retrofit.create(MemberInterface::class.java)
     }
 
     }

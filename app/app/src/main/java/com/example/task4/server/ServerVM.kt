@@ -4,7 +4,6 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 
@@ -35,12 +34,12 @@ class ServerVM (application: Application): AndroidViewModel(application){
     fun createServer(req: ServerRequest) {
         viewModelScope.launch {
             try {
-                val response = repository.create_srver(req)
+                val response = repository.create_server(req)
                 if (response.isSuccessful) {
-                    Log.d("ServerVM", "Server created: ${response.body()}")
+                    Log.d("ServerVM", "Community created: ${response.body()}")
                     loadServers()
                 } else {
-                    Log.d("ServerVM", "Server creation failed: ${response.code()}")
+                    Log.d("ServerVM", "Community creation failed: ${response.code()}")
                     error.value = "Error: ${response.code()}"
                 }
             } catch (e: Exception) {
@@ -69,7 +68,7 @@ class ServerVM (application: Application): AndroidViewModel(application){
             try {
                 val response = repository.updateServer(id, name)
                 if (response.isSuccessful) {
-                    message.value = "Server updated"
+                    message.value = "Community updated"
                     loadServers()
                 } else {
                     error.value = "Error: ${response.code()}"
@@ -85,7 +84,7 @@ class ServerVM (application: Application): AndroidViewModel(application){
             try {
                 val response = repository.deleteServer(id)
                 if (response.isSuccessful) {
-                    message.value = "Server deleted"
+                    message.value = "Community deleted"
                     loadServers()
                 } else {
                     error.value = "Error: ${response.code()}"

@@ -28,7 +28,16 @@ class LoginActivity : AppCompatActivity() {
         val btnLogin = findViewById<AppCompatButton>(R.id.login_button)
         val cbRememberMe = findViewById<CheckBox>(R.id.cbRememberMe)
 
-        val session=SessionManager(this)
+
+        val session = SessionManager(this)
+
+        if (session.isLoggedIn()) {
+            val intent = Intent(this, ServersActivity::class.java)
+            startActivity(intent)
+            finish()
+            return
+        }
+
 
         btnLogin.setOnClickListener {
 

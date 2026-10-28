@@ -16,7 +16,7 @@ class ServerRepository(context: Context) {
     suspend fun getServers(): Response<List<ServerResponse>> =
         api.getServers(token())
 
-    suspend fun create_srver(req: ServerRequest): Response<ServerResponse> =
+    suspend fun create_server(req: ServerRequest): Response<ServerResponse> =
         api.createServer(token(), req)
 
     suspend fun getServer(id: Int): Response<ServerResponse> =
