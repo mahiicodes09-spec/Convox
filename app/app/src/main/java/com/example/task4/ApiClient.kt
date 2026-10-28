@@ -15,6 +15,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.http.GET
 import retrofit2.http.Header
 import com.example.task4.member.MemberInterface
+import com.example.task4.moderation.ModerationInterface
 
 data class RegisterRequest(
     val email: String,
@@ -124,6 +125,9 @@ object ApiClient {
     }
     val memberApi: MemberInterface by lazy {
         retrofit.create(MemberInterface::class.java)
+    }
+    val moderationApi: ModerationInterface by lazy {
+        retrofit.create(ModerationInterface::class.java)
     }
 
     }

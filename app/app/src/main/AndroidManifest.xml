@@ -68,7 +68,11 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".moderator"
+            android:name=".ModeratorActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".item_flagged_message"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
     </application>
