@@ -20,7 +20,6 @@ class Message(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     edited_at = models.DateTimeField(null=True, blank=True)
 
-    # AI moderation ka result
     moderation_status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="unchecked")
     toxicity_label = models.CharField(max_length=50, blank=True)
     toxicity_score = models.FloatField(null=True, blank=True)

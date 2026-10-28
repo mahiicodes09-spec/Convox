@@ -15,7 +15,6 @@ def ask_ml_service(text):
 
 
 def moderate(text):
-    # ML service nahi hai ya error aaya to message ruke nahi, bas "unchecked" rahe
     if not settings.ML_SERVICE_URL:
         return {"moderation_status": "unchecked"}
     try:
