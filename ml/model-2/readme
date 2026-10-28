@@ -1,7 +1,4 @@
-# Smart Community — Text Moderation Models
-
-This folder contains the datasets and notebooks for building text moderation models for the Smart Community project.
-
+url- https://convox-dlcvfcibj3fvgctyfkpqhq.streamlit.app/
 ## Models
 
 - **Toxicity model:** uses the Civil Comments dataset to detect toxic or abusive comments and related categories.
