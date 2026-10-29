@@ -8,15 +8,20 @@ import {
 } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   ClipboardList,
+  Clock,
+  Copy,
   Hash,
   Info,
   LoaderCircle,
   Menu,
   Pencil,
   Plus,
+  RotateCw,
+  ShieldAlert,
   ShieldCheck,
   Settings2,
   Send,
@@ -59,9 +64,7 @@ function mergeMessagesChronologically(existing, incoming) {
     existing.map((message) => [String(message.id), message]),
   );
   incoming.forEach((message) => {
-    if (!messagesById.has(String(message.id))) {
-      messagesById.set(String(message.id), message);
-    }
+    messagesById.set(String(message.id), message);
   });
   return [...messagesById.values()].sort(
     (left, right) =>
@@ -79,7 +82,7 @@ function canModifyMessage(message, profile) {
 }
 
 const ASSIGNABLE_MEMBER_ROLES = ["admin", "moderator", "member"];
-const MODERATION_ACTIONS = ["dismiss", "warn", "remove"];
+const MODERATION_ACTIONS = ["dismiss", "warn", "remove", "mute", "suspend"];
 
 /**
  * The route parameter is the active community's source of truth. The profile
@@ -144,12 +147,27 @@ export default function CommunityWorkspacePage({ profile }) {
   const [moderationLogsServerId, setModerationLogsServerId] = useState("");
   const [moderationLogsLoading, setModerationLogsLoading] = useState(false);
   const [moderationLogsError, setModerationLogsError] = useState("");
-  const [moderationAction, setModerationAction] = useState({});
-  const [moderationReason, setModerationReason] = useState({});
   const [moderationActionMessage, setModerationActionMessage] = useState("");
   const [moderationActionError, setModerationActionError] = useState("");
-  const [moderationActionId, setModerationActionId] = useState("");
+  const [actionModalMessage, setActionModalMessage] = useState(null);
+  const [actionModalType, setActionModalType] = useState("warn");
+  const [actionModalReason, setActionModalReason] = useState("");
+  const [actionModalDuration, setActionModalDuration] = useState("60");
+  const [actionModalConfirm, setActionModalConfirm] = useState(false);
+  const [actionModalSubmitting, setActionModalSubmitting] = useState(false);
+  const [actionModalError, setActionModalError] = useState("");
+  const actionModalDialogRef = useRef(null);
+  const actionModalTriggerRef = useRef(null);
   const [welcomeActionMessage, setWelcomeActionMessage] = useState("");
+  const [inviteFriendsOpen, setInviteFriendsOpen] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteCopyMessage, setInviteCopyMessage] = useState("");
+  const [inviteCopyError, setInviteCopyError] = useState("");
+  const inviteTriggerRef = useRef(null);
+  const inviteModalRef = useRef(null);
+  const inviteInputRef = useRef(null);
+  const restoreInviteTriggerRef = useRef(false);
+  const inviteCopyTimeoutRef = useRef(null);
   const selectedServerIdRef = useRef(serverId);
   const selectedChannelIdRef = useRef(selectedChannelId);
   const savingMessageIdRef = useRef("");
@@ -230,6 +248,41 @@ export default function CommunityWorkspacePage({ profile }) {
   const selectedServer = servers.find(
     (server) => String(server.id) === serverId,
   );
+
+  useEffect(() => {
+    return () => {
+      if (inviteCopyTimeoutRef.current) {
+        clearTimeout(inviteCopyTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const realInviteUrl = useMemo(() => {
+    if (!selectedServer) {
+      return "";
+    }
+    const raw =
+      typeof selectedServer.invite_link === "string"
+        ? selectedServer.invite_link.trim()
+        : "";
+    if (raw) {
+      try {
+        const parsed = new URL(raw);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          return parsed.href;
+        }
+      } catch {
+        if (raw.startsWith("/")) {
+          try {
+            return new URL(raw, window.location.origin).href;
+          } catch {
+            return "";
+          }
+        }
+      }
+    }
+    return "";
+  }, [selectedServer]);
   const visibleMembers = membersServerId === serverId ? members : [];
   const visibleModerationQueue =
     moderationQueueServerId === serverId ? moderationQueue : [];
@@ -270,7 +323,8 @@ export default function CommunityWorkspacePage({ profile }) {
         clearError: setMembersError,
         request: () =>
           api.get(`/servers/${encodeURIComponent(targetServerId)}/members/`),
-        validate: Array.isArray,
+        validate: (data) => Array.isArray(data) || Array.isArray(data?.results),
+        extract: (data) => (Array.isArray(data) ? data : data?.results || []),
         setData: setMembers,
         setServerId: setMembersServerId,
         error: setMembersError,
@@ -284,7 +338,8 @@ export default function CommunityWorkspacePage({ profile }) {
           api.get(
             `/servers/${encodeURIComponent(targetServerId)}/moderation/queue/`,
           ),
-        validate: Array.isArray,
+        validate: (data) => Array.isArray(data) || Array.isArray(data?.results),
+        extract: (data) => (Array.isArray(data) ? data : data?.results || []),
         setData: setModerationQueue,
         setServerId: setModerationQueueServerId,
         error: setModerationQueueError,
@@ -298,7 +353,8 @@ export default function CommunityWorkspacePage({ profile }) {
           api.get(
             `/servers/${encodeURIComponent(targetServerId)}/moderation/logs/`,
           ),
-        validate: Array.isArray,
+        validate: (data) => Array.isArray(data) || Array.isArray(data?.results),
+        extract: (data) => (Array.isArray(data) ? data : data?.results || []),
         setData: setModerationLogs,
         setServerId: setModerationLogsServerId,
         error: setModerationLogsError,
@@ -322,7 +378,7 @@ export default function CommunityWorkspacePage({ profile }) {
           active &&
           selectedServerIdRef.current === targetServerId
         ) {
-          listConfig.setData(response.data);
+          listConfig.setData(listConfig.extract(response.data));
           listConfig.setServerId(targetServerId);
         }
       } catch (error) {
@@ -528,6 +584,78 @@ export default function CommunityWorkspacePage({ profile }) {
     };
   }, [handleRequestError, messagesRefreshKey, selectedChannel, serverId]);
 
+  // Real-time message polling: background polls the active channel every 3.5 seconds
+  // without triggering full page reloads, duplicating messages, or running when the tab is hidden.
+  useEffect(() => {
+    if (!selectedChannel || !serverId || messagesLoading) {
+      return undefined;
+    }
+
+    const channelId = String(selectedChannel.id);
+    const targetServerId = serverId;
+    let active = true;
+    let pollTimer = null;
+    let pollInFlight = false;
+
+    async function pollLatestMessages() {
+      if (
+        !active ||
+        pollInFlight ||
+        document.visibilityState !== "visible" ||
+        selectedServerIdRef.current !== targetServerId ||
+        selectedChannelIdRef.current !== channelId
+      ) {
+        return;
+      }
+
+      pollInFlight = true;
+      try {
+        const response = await api.get(
+          `/channels/${encodeURIComponent(channelId)}/messages/`,
+        );
+        if (
+          active &&
+          selectedServerIdRef.current === targetServerId &&
+          selectedChannelIdRef.current === channelId &&
+          Array.isArray(response.data?.results)
+        ) {
+          setMessages((currentMessages) =>
+            mergeMessagesChronologically(currentMessages, response.data.results),
+          );
+        }
+      } catch {
+        // Silently tolerate background poll errors to avoid disrupting user experience
+      } finally {
+        pollInFlight = false;
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        pollLatestMessages();
+        if (!pollTimer) {
+          pollTimer = setInterval(pollLatestMessages, 3500);
+        }
+      } else if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    if (document.visibilityState === "visible") {
+      pollTimer = setInterval(pollLatestMessages, 3500);
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      active = false;
+      if (pollTimer) {
+        clearInterval(pollTimer);
+      }
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [messagesLoading, selectedChannel, serverId]);
+
   useEffect(() => {
     if (!createChannelOpen) {
       if (restoreChannelTriggerRef.current) {
@@ -620,6 +748,54 @@ export default function CommunityWorkspacePage({ profile }) {
     document.addEventListener("keydown", handleDialogKeyDown);
     return () => document.removeEventListener("keydown", handleDialogKeyDown);
   }, [deletingMessageId, messageToDelete]);
+
+  useEffect(() => {
+    if (!inviteFriendsOpen) {
+      if (restoreInviteTriggerRef.current) {
+        restoreInviteTriggerRef.current = false;
+        inviteTriggerRef.current?.focus();
+      }
+      return undefined;
+    }
+
+    if (inviteInputRef.current) {
+      inviteInputRef.current.focus();
+    } else {
+      inviteModalRef.current?.focus();
+    }
+
+    function handleDialogKeyDown(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeInviteFriendsModal();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const dialog = inviteModalRef.current;
+      const focusable = dialog?.querySelectorAll(
+        "button:not([disabled]), input:not([disabled]), a:not([disabled])",
+      );
+      if (!focusable?.length) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleDialogKeyDown);
+    return () => document.removeEventListener("keydown", handleDialogKeyDown);
+  }, [inviteFriendsOpen]);
 
   function selectChannel(channel) {
     const channelId = String(channel.id);
@@ -714,63 +890,189 @@ export default function CommunityWorkspacePage({ profile }) {
     }
   }
 
-  async function handleModerationAction(message) {
-    const messageId = String(message.id);
-    const targetServerId = serverId;
-    const action = moderationAction[messageId] || "dismiss";
-    const reason = (moderationReason[messageId] || "").trim();
-    if (
-      !canModerateCommunity ||
-      !MODERATION_ACTIONS.includes(action) ||
-      !reason ||
-      reason.length > 500 ||
-      moderationActionId
-    ) {
-      if (!reason) {
-        setModerationActionError("Enter a reason for this moderation action.");
-      } else if (reason.length > 500) {
-        setModerationActionError("The reason cannot exceed 500 characters.");
-      }
+  function openActionModal(message, event) {
+    actionModalTriggerRef.current = event?.currentTarget || null;
+    setActionModalMessage(message);
+    setActionModalType("warn");
+    setActionModalReason("");
+    setActionModalDuration("60");
+    setActionModalConfirm(false);
+    setActionModalError("");
+  }
+
+  const closeActionModal = useCallback(() => {
+    if (actionModalSubmitting) {
+      return;
+    }
+    setActionModalMessage(null);
+    setActionModalError("");
+    actionModalTriggerRef.current?.focus();
+  }, [actionModalSubmitting]);
+
+  async function submitActionModal(event) {
+    if (event) {
+      event.preventDefault();
+    }
+    if (!actionModalMessage || actionModalSubmitting) {
       return;
     }
 
-    setModerationActionId(messageId);
-    setModerationActionError("");
-    setModerationActionMessage("");
+    const messageId = String(actionModalMessage.id);
+    const targetServerId = serverId;
+    const action = actionModalType;
+    const reason = actionModalReason.trim();
+
+    if (!MODERATION_ACTIONS.includes(action)) {
+      setActionModalError("Please select a valid moderation action.");
+      return;
+    }
+    if (!reason) {
+      setActionModalError("A reason is required for this moderation action.");
+      return;
+    }
+    if (reason.length > 500) {
+      setActionModalError("The reason cannot exceed 500 characters.");
+      return;
+    }
+
+    const isDestructive = action === "remove" || action === "suspend";
+    if (isDestructive && !actionModalConfirm) {
+      setActionModalError(
+        `Please check the confirmation box to confirm this ${action} action.`,
+      );
+      return;
+    }
+
+    const payload = { action, reason };
+    if (action === "mute" || action === "suspend") {
+      const durationNum = parseInt(actionModalDuration, 10);
+      if (!isNaN(durationNum) && durationNum >= 1 && durationNum <= 10080) {
+        payload.duration_minutes = durationNum;
+      } else {
+        setActionModalError("Duration must be between 1 and 10080 minutes (up to 7 days).");
+        return;
+      }
+    }
+
+    setActionModalSubmitting(true);
+    setActionModalError("");
+
     try {
       const response = await api.post(
         `/moderation/messages/${encodeURIComponent(messageId)}/action/`,
-        { action, reason },
+        payload,
       );
+
       if (selectedServerIdRef.current === targetServerId) {
         setModerationQueue((currentQueue) =>
-          currentQueue.filter(
-            (queueMessage) => String(queueMessage.id) !== messageId,
-          ),
+          currentQueue.filter((queueMsg) => String(queueMsg.id) !== messageId),
         );
-        setModerationActionMessage("Moderation action completed.");
-        if (
-          moderationLogsServerId === targetServerId &&
-          response.data?.id != null
-        ) {
+        if (response.data?.id != null) {
           setModerationLogs((currentLogs) => [
             response.data,
-            ...currentLogs.filter(
-              (log) => String(log.id) !== String(response.data.id),
-            ),
+            ...currentLogs.filter((log) => String(log.id) !== String(response.data.id)),
           ]);
         }
-      }
-    } catch (error) {
-      if (selectedServerIdRef.current === targetServerId) {
-        setModerationActionError(
-          getApiErrorMessage(error, "Could not complete this moderation action."),
+        setModerationActionMessage(
+          `Action "${action}" completed successfully on message #${messageId}.`,
         );
       }
+      setActionModalMessage(null);
+    } catch (error) {
+      setActionModalError(
+        getApiErrorMessage(error, "Could not complete this moderation action. Please try again."),
+      );
     } finally {
-      setModerationActionId("");
+      setActionModalSubmitting(false);
     }
   }
+
+  const reloadModerationQueue = useCallback(async () => {
+    if (!serverId || moderationQueueLoading) {
+      return;
+    }
+    setModerationQueueLoading(true);
+    setModerationQueueError("");
+    try {
+      const response = await api.get(
+        `/servers/${encodeURIComponent(serverId)}/moderation/queue/`,
+      );
+      const results = Array.isArray(response.data)
+        ? response.data
+        : (response.data?.results || []);
+      setModerationQueue(results);
+      setModerationQueueServerId(serverId);
+    } catch (error) {
+      setModerationQueueError(
+        getApiErrorMessage(error, "Could not reload moderation queue."),
+      );
+    } finally {
+      setModerationQueueLoading(false);
+    }
+  }, [moderationQueueLoading, serverId]);
+
+  const reloadModerationLogs = useCallback(async () => {
+    if (!serverId || moderationLogsLoading) {
+      return;
+    }
+    setModerationLogsLoading(true);
+    setModerationLogsError("");
+    try {
+      const response = await api.get(
+        `/servers/${encodeURIComponent(serverId)}/moderation/logs/`,
+      );
+      const results = Array.isArray(response.data)
+        ? response.data
+        : (response.data?.results || []);
+      setModerationLogs(results);
+      setModerationLogsServerId(serverId);
+    } catch (error) {
+      setModerationLogsError(
+        getApiErrorMessage(error, "Could not reload moderation logs."),
+      );
+    } finally {
+      setModerationLogsLoading(false);
+    }
+  }, [moderationLogsLoading, serverId]);
+
+  useEffect(() => {
+    if (!actionModalMessage) {
+      return undefined;
+    }
+
+    function handleDialogKeyDown(event) {
+      if (event.key === "Escape" && !actionModalSubmitting) {
+        event.preventDefault();
+        closeActionModal();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const dialog = actionModalDialogRef.current;
+      const focusable = dialog?.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+      );
+      if (!focusable || focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    window.addEventListener("keydown", handleDialogKeyDown);
+    return () => window.removeEventListener("keydown", handleDialogKeyDown);
+  }, [actionModalMessage, actionModalSubmitting, closeActionModal]);
 
   function openCreateChannel(event) {
     createChannelTriggerRef.current = event.currentTarget;
@@ -859,7 +1161,7 @@ export default function CommunityWorkspacePage({ profile }) {
         setMessages((currentMessages) =>
           messagesServerId === messageServerId &&
           messagesChannelId === channelId
-            ? [...currentMessages, response.data]
+            ? mergeMessagesChronologically(currentMessages, [response.data])
             : [response.data],
         );
         setMessagesServerId(messageServerId);
@@ -1170,20 +1472,69 @@ export default function CommunityWorkspacePage({ profile }) {
     }
   }
 
-  async function copyCommunityInvite() {
-    const invite = selectedServer?.invite_link || selectedServer?.invite_code;
-    if (!invite) {
-      navigate("/dashboard#discover");
+  function openInviteFriendsModal() {
+    setInviteCopied(false);
+    setInviteCopyMessage("");
+    setInviteCopyError("");
+    setInviteFriendsOpen(true);
+  }
+
+  function closeInviteFriendsModal() {
+    restoreInviteTriggerRef.current = true;
+    setInviteFriendsOpen(false);
+    setInviteCopied(false);
+    setInviteCopyMessage("");
+    setInviteCopyError("");
+  }
+
+  async function handleCopyInviteUrl() {
+    if (!realInviteUrl) {
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(invite);
+      await navigator.clipboard.writeText(realInviteUrl);
+      setInviteCopied(true);
+      setInviteCopyMessage("Invite link copied to clipboard.");
       setWelcomeActionMessage("Community invite copied to your clipboard.");
+      setInviteCopyError("");
+      if (inviteCopyTimeoutRef.current) {
+        clearTimeout(inviteCopyTimeoutRef.current);
+      }
+      inviteCopyTimeoutRef.current = setTimeout(() => {
+        setInviteCopied(false);
+        setInviteCopyMessage("");
+      }, 3000);
     } catch {
-      setWelcomeActionMessage(
-        "Clipboard access is unavailable. Open community settings to share its invite.",
+      setInviteCopied(false);
+      setInviteCopyMessage("");
+      setInviteCopyError(
+        "Could not copy automatically. Please select and copy the link above.",
       );
+    }
+  }
+
+  async function handleCopyInviteCode(code) {
+    if (!code) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(code);
+      setInviteCopied(true);
+      setInviteCopyMessage("Invite code copied to clipboard.");
+      setInviteCopyError("");
+      if (inviteCopyTimeoutRef.current) {
+        clearTimeout(inviteCopyTimeoutRef.current);
+      }
+      inviteCopyTimeoutRef.current = setTimeout(() => {
+        setInviteCopied(false);
+        setInviteCopyMessage("");
+      }, 3000);
+    } catch {
+      setInviteCopied(false);
+      setInviteCopyMessage("");
+      setInviteCopyError("Could not copy code. Please copy it manually.");
     }
   }
 
@@ -1567,7 +1918,10 @@ export default function CommunityWorkspacePage({ profile }) {
                           `This is the start of your community. Say hello in #${selectedChannel.name} and help make it your own.`}
                       </p>
                       <div className="community-workspace__welcome-grid">
-                        <article className="community-workspace__welcome-card">
+                        <article
+                          onClick={openInviteFriendsModal}
+                          className="community-workspace__welcome-card cursor-pointer"
+                        >
                           <span className="community-workspace__welcome-card-icon">
                             <UserPlus size={20} aria-hidden="true" />
                           </span>
@@ -1576,14 +1930,15 @@ export default function CommunityWorkspacePage({ profile }) {
                             <p>Share an invite and welcome others in.</p>
                           </div>
                           <button
+                            ref={inviteTriggerRef}
                             type="button"
-                            onClick={copyCommunityInvite}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openInviteFriendsModal();
+                            }}
                             className="community-workspace__welcome-action"
                           >
-                            {selectedServer.invite_link ||
-                            selectedServer.invite_code
-                              ? "Copy invite"
-                              : "Find invite options"}
+                            Invite friends
                           </button>
                         </article>
                         <article className="community-workspace__welcome-card">
@@ -2473,6 +2828,31 @@ export default function CommunityWorkspacePage({ profile }) {
 
               {communityToolsTab === "queue" && canModerateCommunity && (
                 <section aria-label="Moderation queue">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-neutral-900">
+                        Flagged messages
+                        {visibleModerationQueue.length > 0 && (
+                          <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">
+                            {visibleModerationQueue.length}
+                          </span>
+                        )}
+                      </h3>
+                      <p className="mt-1 text-xs text-neutral-600">
+                        Review messages flagged for toxicity and take moderation actions.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={reloadModerationQueue}
+                      disabled={moderationQueueLoading}
+                      aria-label="Refresh moderation queue"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:opacity-50"
+                    >
+                      <RotateCw size={13} className={moderationQueueLoading ? "animate-spin" : ""} />
+                      Refresh
+                    </button>
+                  </div>
                   {moderationActionMessage && (
                     <p role="status" className="mb-3 rounded-lg border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm text-neutral-800">
                       {moderationActionMessage}
@@ -2484,9 +2864,18 @@ export default function CommunityWorkspacePage({ profile }) {
                     </p>
                   )}
                   {moderationQueueError && (
-                    <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                      {moderationQueueError}
-                    </p>
+                    <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3">
+                      <p role="alert" className="text-sm text-red-800">
+                        {moderationQueueError}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={reloadModerationQueue}
+                        className="mt-2 text-xs font-semibold text-red-900 underline underline-offset-2"
+                      >
+                        Try again
+                      </button>
+                    </div>
                   )}
                   {moderationQueueLoading ? (
                     <p role="status" className="flex items-center gap-2 py-8 text-sm text-neutral-600">
@@ -2495,19 +2884,19 @@ export default function CommunityWorkspacePage({ profile }) {
                     </p>
                   ) : moderationQueueError ? null : visibleModerationQueue.length === 0 ? (
                     <p className="py-8 text-center text-sm text-neutral-600">
-                      The moderation queue is empty.
+                      The moderation queue is empty. Flagged messages will appear here for review.
                     </p>
                   ) : (
                     <ul className="space-y-3">
                       {visibleModerationQueue.map((message) => (
                         <li
                           key={message.id}
-                          className="rounded-xl border border-neutral-200 bg-neutral-50 p-4"
+                          className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 transition"
                         >
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
                               <p className="text-sm font-semibold text-neutral-900">
-                                {message.author?.display_name || "Community member"}
+                                {message.author?.display_name || message.author?.username || "Community member"}
                                 <span className="font-normal text-neutral-600">
                                   {" "}in #{message.channel_name}
                                 </span>
@@ -2521,73 +2910,38 @@ export default function CommunityWorkspacePage({ profile }) {
                                   : ""}
                               </p>
                             </div>
-                            {typeof message.toxicity_score === "number" && (
-                              <span className="rounded-full border border-neutral-300 px-2 py-1 text-xs text-neutral-600">
-                                Score {message.toxicity_score}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {typeof message.toxicity_score === "number" && (
+                                <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                  message.toxicity_score >= 0.7
+                                    ? "bg-red-100 text-red-800 border border-red-200"
+                                    : "bg-amber-100 text-amber-800 border border-amber-200"
+                                }`}>
+                                  Score {(message.toxicity_score * 100).toFixed(0)}%
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <p className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-sm leading-6 text-neutral-800">
-                            {message.content}
-                          </p>
-                          {canModerateCommunity ? (
-                            <div className="mt-3 grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)_auto]">
-                              <label className="sr-only" htmlFor={`moderation-action-${message.id}`}>
-                                Action for message {message.id}
-                              </label>
-                              <select
-                                id={`moderation-action-${message.id}`}
-                                value={moderationAction[String(message.id)] || "dismiss"}
-                                onChange={(event) =>
-                                  setModerationAction((current) => ({
-                                    ...current,
-                                    [String(message.id)]: event.target.value,
-                                  }))
-                                }
-                                className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
-                              >
-                                {MODERATION_ACTIONS.map((action) => (
-                                  <option key={action} value={action}>
-                                    {action}
-                                  </option>
-                                ))}
-                              </select>
-                              <label className="sr-only" htmlFor={`moderation-reason-${message.id}`}>
-                                Reason for action on message {message.id}
-                              </label>
-                              <input
-                                id={`moderation-reason-${message.id}`}
-                                type="text"
-                                maxLength={500}
-                                value={moderationReason[String(message.id)] || ""}
-                                onChange={(event) =>
-                                  setModerationReason((current) => ({
-                                    ...current,
-                                    [String(message.id)]: event.target.value,
-                                  }))
-                                }
-                                placeholder="Reason (required)"
-                                className="min-w-0 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-800 placeholder:text-neutral-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
-                              />
+                          <div className="mt-3 rounded-lg border border-neutral-200 bg-white p-3">
+                            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-neutral-800">
+                              {message.content}
+                            </p>
+                          </div>
+                          <div className="mt-3 flex items-center justify-between gap-3">
+                            <span className="text-xs text-neutral-500">
+                              ID: #{message.id}
+                            </span>
+                            {canModerateCommunity ? (
                               <button
                                 type="button"
-                                onClick={() => handleModerationAction(message)}
-                                disabled={Boolean(moderationActionId)}
-                                className="inline-flex items-center justify-center gap-2 rounded-lg bg-neutral-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-wait disabled:opacity-60"
+                                onClick={(event) => openActionModal(message, event)}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-950 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
                               >
-                                {moderationActionId === String(message.id) ? (
-                                  <LoaderCircle size={15} className="animate-spin" />
-                                ) : (
-                                  <Check size={15} />
-                                )}
-                                Apply
+                                <ShieldAlert size={14} />
+                                Take Action
                               </button>
-                            </div>
-                          ) : (
-                            <p className="mt-3 text-xs text-neutral-600">
-                              Moderation actions are available to owners, admins, and moderators.
-                            </p>
-                          )}
+                            ) : null}
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -2597,10 +2951,39 @@ export default function CommunityWorkspacePage({ profile }) {
 
               {communityToolsTab === "logs" && canModerateCommunity && (
                 <section aria-label="Moderation logs">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-neutral-900">
+                        Audit logs
+                      </h3>
+                      <p className="mt-1 text-xs text-neutral-600">
+                        Review past moderation decisions, sanctions, and reasons.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={reloadModerationLogs}
+                      disabled={moderationLogsLoading}
+                      aria-label="Refresh moderation logs"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:opacity-50"
+                    >
+                      <RotateCw size={13} className={moderationLogsLoading ? "animate-spin" : ""} />
+                      Refresh
+                    </button>
+                  </div>
                   {moderationLogsError && (
-                    <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                      {moderationLogsError}
-                    </p>
+                    <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3">
+                      <p role="alert" className="text-sm text-red-800">
+                        {moderationLogsError}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={reloadModerationLogs}
+                        className="mt-2 text-xs font-semibold text-red-900 underline underline-offset-2"
+                      >
+                        Try again
+                      </button>
+                    </div>
                   )}
                   {moderationLogsLoading ? (
                     <p role="status" className="flex items-center gap-2 py-8 text-sm text-neutral-600">
@@ -2609,42 +2992,457 @@ export default function CommunityWorkspacePage({ profile }) {
                     </p>
                   ) : moderationLogsError ? null : visibleModerationLogs.length === 0 ? (
                     <p className="py-8 text-center text-sm text-neutral-600">
-                      No moderation actions have been recorded.
+                      No moderation actions have been recorded yet.
                     </p>
                   ) : (
                     <ul className="divide-y divide-neutral-200">
-                      {visibleModerationLogs.map((log) => (
-                        <li key={log.id} className="py-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-sm font-semibold capitalize text-neutral-900">
-                              {log.action}
-                              {log.target_user?.display_name
-                                ? ` · ${log.target_user.display_name}`
-                                : ""}
-                            </p>
-                            <time className="text-xs text-neutral-500">
-                              {log.created_at
-                                ? new Date(log.created_at).toLocaleString()
-                                : ""}
-                            </time>
-                          </div>
-                          <p className="mt-1 text-sm leading-5 text-neutral-700">
-                            {log.reason}
-                          </p>
-                          <p className="mt-1 text-xs text-neutral-500">
-                            By {log.actor?.display_name || "Moderator"}
-                            {log.message_id != null
-                              ? ` · Message ${log.message_id}`
-                              : ""}
-                            {log.toxicity_label
-                              ? ` · ${log.toxicity_label}`
-                              : ""}
-                          </p>
-                        </li>
-                      ))}
+                      {visibleModerationLogs.map((log) => {
+                        const actionStyle = {
+                          dismiss: "bg-neutral-100 text-neutral-800 border-neutral-300",
+                          warn: "bg-amber-100 text-amber-800 border-amber-300",
+                          remove: "bg-red-100 text-red-800 border-red-300",
+                          mute: "bg-orange-100 text-orange-800 border-orange-300",
+                          suspend: "bg-purple-100 text-purple-800 border-purple-300",
+                        }[log.action] || "bg-neutral-100 text-neutral-800 border-neutral-300";
+
+                        return (
+                          <li key={log.id} className="py-3.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${actionStyle}`}>
+                                  {log.action}
+                                </span>
+                                <span className="text-sm font-semibold text-neutral-900">
+                                  {log.actor?.display_name || log.actor?.username || "Moderator"}
+                                  <span className="font-normal text-neutral-600"> on </span>
+                                  {log.target_user?.display_name || log.target_user?.username || "Community member"}
+                                </span>
+                              </div>
+                              <time className="text-xs text-neutral-500">
+                                {log.created_at
+                                  ? new Date(log.created_at).toLocaleString()
+                                  : ""}
+                              </time>
+                            </div>
+                            <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2">
+                              <p className="text-xs font-semibold text-neutral-500">Reason:</p>
+                              <p className="mt-0.5 text-sm leading-5 text-neutral-800">
+                                {log.reason}
+                              </p>
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500">
+                              {log.message_id != null && (
+                                <span>Target Message: #{log.message_id}</span>
+                              )}
+                              {log.toxicity_label && (
+                                <span>Flagged Label: {log.toxicity_label}</span>
+                              )}
+                              {typeof log.toxicity_score === "number" && (
+                                <span>Toxicity Score: {(log.toxicity_score * 100).toFixed(0)}%</span>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </section>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {actionModalMessage && (
+        <div
+          className="community-workspace__overlay fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/60 p-4 backdrop-blur-[2px]"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !actionModalSubmitting) {
+              closeActionModal();
+            }
+          }}
+        >
+          <section
+            ref={actionModalDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="workspace-action-modal-title"
+            tabIndex={-1}
+            className="community-workspace__dialog flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl outline-none"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-4">
+              <div>
+                <h2
+                  id="workspace-action-modal-title"
+                  className="text-lg font-semibold text-neutral-950"
+                >
+                  Take Moderation Action
+                </h2>
+                <p className="mt-1 text-xs text-neutral-600">
+                  Review the flagged message and apply an appropriate sanction or dismissal.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeActionModal}
+                disabled={actionModalSubmitting}
+                aria-label="Close moderation modal"
+                className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:opacity-50"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <form onSubmit={submitActionModal} className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
+              <div className="space-y-4">
+                {/* Flagged Message Preview */}
+                <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-neutral-900">
+                      {actionModalMessage.author?.display_name || actionModalMessage.author?.username || "Member"}
+                      <span className="font-normal text-neutral-600"> in #{actionModalMessage.channel_name}</span>
+                    </span>
+                    {typeof actionModalMessage.toxicity_score === "number" && (
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">
+                        Score {(actionModalMessage.toxicity_score * 100).toFixed(0)}% · {actionModalMessage.toxicity_label || "flagged"}
+                      </span>
+                    )}
+                  </div>
+                  <blockquote className="mt-2 rounded-lg border border-neutral-200 bg-white p-2.5 text-sm leading-relaxed text-neutral-800">
+                    "{actionModalMessage.content}"
+                  </blockquote>
+                </div>
+
+                {/* Action Selector */}
+                <div>
+                  <label
+                    htmlFor="action-modal-select"
+                    className="block text-xs font-semibold uppercase tracking-wide text-neutral-600"
+                  >
+                    Select Action <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    id="action-modal-select"
+                    value={actionModalType}
+                    disabled={actionModalSubmitting}
+                    onChange={(e) => {
+                      setActionModalType(e.target.value);
+                      setActionModalConfirm(false);
+                      setActionModalError("");
+                    }}
+                    className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                  >
+                    <option value="dismiss">Dismiss (No action needed / false positive)</option>
+                    <option value="warn">Warn (Issue official warning to author)</option>
+                    <option value="remove">Remove (Delete message permanently)</option>
+                    <option value="mute">Mute (Temporarily restrict member posting)</option>
+                    <option value="suspend">Suspend (Temporarily suspend member access)</option>
+                  </select>
+                </div>
+
+                {/* Duration (shown for mute and suspend) */}
+                {(actionModalType === "mute" || actionModalType === "suspend") && (
+                  <div>
+                    <label
+                      htmlFor="action-modal-duration"
+                      className="block text-xs font-semibold uppercase tracking-wide text-neutral-600"
+                    >
+                      Duration (Minutes) <span className="text-red-500">*</span>
+                    </label>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <input
+                        id="action-modal-duration"
+                        type="number"
+                        min={1}
+                        max={10080}
+                        value={actionModalDuration}
+                        disabled={actionModalSubmitting}
+                        onChange={(e) => setActionModalDuration(e.target.value)}
+                        className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                      />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {[
+                        { label: "15 min", val: "15" },
+                        { label: "1 hour", val: "60" },
+                        { label: "24 hours", val: "1440" },
+                        { label: "7 days", val: "10080" },
+                      ].map((preset) => (
+                        <button
+                          key={preset.val}
+                          type="button"
+                          onClick={() => setActionModalDuration(preset.val)}
+                          disabled={actionModalSubmitting}
+                          className={`rounded-md border px-2 py-1 text-xs font-medium transition ${
+                            actionModalDuration === preset.val
+                              ? "border-neutral-900 bg-neutral-900 text-white"
+                              : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-100"
+                          }`}
+                        >
+                          <Clock size={11} className="mr-1 inline" />
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Reason Textarea */}
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label
+                      htmlFor="action-modal-reason"
+                      className="block text-xs font-semibold uppercase tracking-wide text-neutral-600"
+                    >
+                      Reason <span className="text-red-500">*</span>
+                    </label>
+                    <span className="text-xs text-neutral-500">
+                      {actionModalReason.length}/500
+                    </span>
+                  </div>
+                  <textarea
+                    id="action-modal-reason"
+                    rows={3}
+                    maxLength={500}
+                    required
+                    value={actionModalReason}
+                    disabled={actionModalSubmitting}
+                    onChange={(e) => {
+                      setActionModalReason(e.target.value);
+                      if (actionModalError) setActionModalError("");
+                    }}
+                    placeholder="Provide a clear justification for this moderation decision..."
+                    className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm leading-5 text-neutral-900 placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                  />
+                </div>
+
+                {/* Destructive Action Confirmation */}
+                {(actionModalType === "remove" || actionModalType === "suspend") && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-3.5">
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle size={18} className="shrink-0 text-red-600 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-semibold text-red-900">
+                          Confirm Destructive Action
+                        </p>
+                        <p className="mt-0.5 text-xs text-red-700">
+                          {actionModalType === "remove"
+                            ? "This will permanently remove the message from the channel."
+                            : "This will temporarily suspend the user's community access."}
+                        </p>
+                        <label className="mt-2.5 flex items-center gap-2 text-xs font-medium text-red-950">
+                          <input
+                            type="checkbox"
+                            checked={actionModalConfirm}
+                            disabled={actionModalSubmitting}
+                            onChange={(e) => setActionModalConfirm(e.target.checked)}
+                            className="rounded border-red-300 text-red-600 focus:ring-red-500"
+                          />
+                          I understand and confirm this action
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Banner */}
+                {actionModalError && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                    {actionModalError}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="mt-6 flex items-center justify-end gap-3 border-t border-neutral-100 pt-4">
+                <button
+                  type="button"
+                  onClick={closeActionModal}
+                  disabled={actionModalSubmitting}
+                  className="rounded-lg border border-neutral-300 bg-white px-4 py-2 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    actionModalSubmitting ||
+                    !actionModalReason.trim() ||
+                    ((actionModalType === "remove" || actionModalType === "suspend") && !actionModalConfirm)
+                  }
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold text-white transition focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+                    actionModalType === "remove" || actionModalType === "suspend"
+                      ? "bg-red-600 hover:bg-red-700 focus-visible:ring-red-500"
+                      : "bg-neutral-950 hover:bg-neutral-800 focus-visible:ring-neutral-500"
+                  }`}
+                >
+                  {actionModalSubmitting ? (
+                    <LoaderCircle size={14} className="animate-spin" />
+                  ) : (
+                    <ShieldCheck size={14} />
+                  )}
+                  Apply Action
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {inviteFriendsOpen && selectedServer && (
+        <div
+          className="community-workspace__overlay fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/60 p-4 backdrop-blur-[2px]"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeInviteFriendsModal();
+            }
+          }}
+        >
+          <section
+            ref={inviteModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="workspace-invite-modal-title"
+            tabIndex={-1}
+            className="community-workspace__dialog w-full max-w-md rounded-2xl border border-neutral-200 bg-white shadow-2xl outline-none"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-5">
+              <div>
+                <h2
+                  id="workspace-invite-modal-title"
+                  className="text-lg font-semibold text-neutral-950"
+                >
+                  Invite friends to {selectedServer.name}
+                </h2>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Share this link with others to grant them access to this community.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeInviteFriendsModal}
+                aria-label="Close invite modal"
+                className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="space-y-4 p-5">
+              {realInviteUrl ? (
+                <div>
+                  <label
+                    htmlFor="workspace-invite-url-input"
+                    className="block text-xs font-semibold uppercase tracking-wide text-neutral-500"
+                  >
+                    Community invite link
+                  </label>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      ref={inviteInputRef}
+                      id="workspace-invite-url-input"
+                      type="text"
+                      readOnly
+                      value={realInviteUrl}
+                      onFocus={(event) => event.target.select()}
+                      aria-label="Community invite URL"
+                      className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm font-mono outline-none focus:border-neutral-600 focus:ring-2 focus:ring-neutral-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopyInviteUrl}
+                      className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-neutral-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                    >
+                      {inviteCopied ? (
+                        <>
+                          <Check size={16} aria-hidden="true" />
+                          <span>Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={16} aria-hidden="true" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  {inviteCopyMessage && (
+                    <p
+                      role="status"
+                      aria-live="polite"
+                      className="mt-2 text-xs font-medium text-green-700"
+                    >
+                      {inviteCopyMessage}
+                    </p>
+                  )}
+                  {inviteCopyError && (
+                    <p
+                      role="alert"
+                      className="mt-2 text-xs font-medium text-red-700"
+                    >
+                      {inviteCopyError}
+                    </p>
+                  )}
+                  <p className="mt-2 text-xs text-neutral-500">
+                    Your invite link does not expire.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                  <p className="text-sm font-medium text-neutral-800">
+                    Invite links are currently unavailable for this community.
+                  </p>
+                  {selectedServer.invite_code ? (
+                    <div className="mt-3">
+                      <p className="text-xs text-neutral-600">
+                        Share this community code instead so friends can join from their dashboard:
+                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <code className="flex-1 rounded-lg border border-neutral-300 bg-neutral-100 px-3 py-2 font-mono text-xs font-semibold text-neutral-900">
+                          {selectedServer.invite_code}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyInviteCode(selectedServer.invite_code)}
+                          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-neutral-950 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                        >
+                          {inviteCopied ? (
+                            <>
+                              <Check size={14} aria-hidden="true" />
+                              <span>Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={14} aria-hidden="true" />
+                              <span>Copy code</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      {inviteCopyMessage && (
+                        <p
+                          role="status"
+                          aria-live="polite"
+                          className="mt-2 text-xs font-medium text-green-700"
+                        >
+                          {inviteCopyMessage}
+                        </p>
+                      )}
+                      {inviteCopyError && (
+                        <p
+                          role="alert"
+                          className="mt-2 text-xs font-medium text-red-700"
+                        >
+                          {inviteCopyError}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Check back later or ask a community administrator for an invite.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </section>
