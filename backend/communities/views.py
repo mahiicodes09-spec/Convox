@@ -10,6 +10,7 @@ from .serializers import InvitePreviewSerializer, JoinServerSerializer, ServerSe
 from .models import Server, ServerMember, Channel
 from .permissions import IsServerOwnerOrReadOnly
 from rest_framework.filters import SearchFilter
+from django.core.cache import cache
 # Create your views here.
 
 
@@ -69,6 +70,15 @@ class ChannelListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         return Channel.objects.filter(server=self.get_server())
 
+    def list(self, request, *args, **kwargs):
+        server = self.get_server()
+        key = f"channels:{server.id}"
+        data = cache.get(key)
+        if data is None:
+            data = list(ChannelSerializer(Channel.objects.filter(server=server), many=True).data)
+            cache.set(key, data, timeout=60)
+        return Response(data)
+
     def perform_create(self, serializer):
         server = self.get_server()
         member = ServerMember.objects.get(server=server, user=self.request.user)
@@ -78,7 +88,7 @@ class ChannelListCreateView(generics.ListCreateAPIView):
         if Channel.objects.filter(server=server, name=name).exists():
             raise ValidationError({"name": "Is naam ka channel pehle se hai."})
         serializer.save(server=server)
-
+        cache.delete(f"channels:{server.id}")
 
 class MemberListView(generics.ListAPIView):
     serializer_class = MemberSerializer
