@@ -33,3 +33,13 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.author} in #{self.channel.name}: {self.content[:30]}"
+class Attachment(models.Model):
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="attachments")
+    file = models.FileField(upload_to="chat_files/")
+    original_name = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=100)
+    size = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.original_name} (message {self.message_id})"

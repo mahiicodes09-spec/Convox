@@ -6,10 +6,18 @@ from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from communities.models import Channel, ServerMember
 from moderation.permissions import get_restriction
-from .models import Message
+from .models import Message , Attachment
 from .moderation import moderate
 from rest_framework.filters import SearchFilter
-from .serializers import MessageSerializer
+from .serializers import MessageSerializer , AttachmentUploadSerializer
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from django.db import transaction
+from drf_spectacular.utils import extend_schema
+from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.response import Response
+from rest_framework.views import APIView
 # Create your views here.
 
 
@@ -43,7 +51,14 @@ class MessageListCreateView(generics.ListCreateAPIView):
         if restriction:
             raise PermissionDenied(f"Aap abhi {restriction} hain, message nahi bhej sakte.")
         content = serializer.validated_data["content"]
-        serializer.save(channel=channel, author=self.request.user, **moderate(content))
+        message = serializer.save(channel=channel, author=self.request.user, **moderate(content))
+        try:
+            async_to_sync(get_channel_layer().group_send)(
+                f"chat_{channel.id}",
+                {"type": "chat.message", "message": dict(MessageSerializer(message).data)},
+            )
+        except Exception:
+            pass
 
 
 class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -66,3 +81,48 @@ class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):
             if member.role not in ["owner", "admin", "moderator"]:
                 raise PermissionDenied("Dusre ka message sirf owner, admin ya moderator delete kar sakte hain.")
         instance.delete()
+ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf", "video/mp4"}
+MAX_FILE_SIZE = 10 * 1024 * 1024
+
+
+class AttachmentUploadView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(request=AttachmentUploadSerializer, responses=MessageSerializer)
+    def post(self, request, channel_id):
+        channel = get_object_or_404(Channel, id=channel_id, server__members__user=request.user)
+        restriction = get_restriction(request.user, channel.server)
+        if restriction:
+            raise PermissionDenied(f"Aap abhi {restriction} hain, file nahi bhej sakte.")
+
+        upload = request.FILES.get("file")
+        if upload is None:
+            raise ValidationError({"file": "File zaroori hai."})
+        if upload.size > MAX_FILE_SIZE:
+            raise ValidationError({"file": "File 10 MB se badi nahi ho sakti."})
+        if upload.content_type not in ALLOWED_TYPES:
+            raise ValidationError({"file": "Sirf jpg, png, webp, pdf ya mp4 allowed hai."})
+
+        caption = str(request.data.get("content", "")).strip()[:2000]
+        extra = moderate(caption) if caption else {}
+
+        with transaction.atomic():
+            message = Message.objects.create(channel=channel, author=request.user, content=caption, **extra)
+            Attachment.objects.create(
+                message=message,
+                file=upload,
+                original_name=upload.name[:255],
+                content_type=upload.content_type,
+                size=upload.size,
+            )
+
+        data = dict(MessageSerializer(message, context={"request": request}).data)
+        try:
+            async_to_sync(get_channel_layer().group_send)(
+                f"chat_{channel.id}",
+                {"type": "chat.message", "message": data},
+            )
+        except Exception:
+            pass
+        return Response(data, status=201)
