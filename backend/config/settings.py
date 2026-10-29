@@ -30,6 +30,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -38,10 +39,13 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'drf_spectacular',
     'accounts',
+    'communities',
+    'chat',
+    'moderation',
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -79,6 +83,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = 'config.asgi.application'
 
 
 # Database
@@ -90,6 +95,48 @@ DATABASES = {
         conn_max_age=600,
     )
 }
+REDIS_URL = config("REDIS_URL", default="")
+FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:5173")
+
+# AI moderation (ML team ki FastAPI service)
+ML_SERVICE_URL = config("ML_SERVICE_URL", default="")
+ML_TIMEOUT_SECONDS = config("ML_TIMEOUT_SECONDS", default=5, cast=int)
+ML_MODEL_VERSION = config("ML_MODEL_VERSION", default="convox-ml-api-0.1.0")
+TOXICITY_THRESHOLD = config("TOXICITY_THRESHOLD", default=0.7, cast=float)
+SPAM_THRESHOLD = config("SPAM_THRESHOLD", default=0.9, cast=float)
+
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "socket_connect_timeout": 5,
+                "socket_timeout": 5,
+            },
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }
+
+# WebSocket messages ek user se baaki users tak pahunchane ke liye
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": [REDIS_URL]},
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        }
+    }
 
 
 # Password validation
@@ -143,11 +190,22 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'accounts.authentication.RedisJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+        'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/min',
+        'user': '120/min',
+        'login': '10/min',
+        'otp': '5/min',
+    },
 }
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),

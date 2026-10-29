@@ -1,32 +1,33 @@
 from rest_framework import serializers
-from django.contrib.auth.password_validation import validate_password
-from accounts.models import User
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password as django_validate_password
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import InvalidToken
+from .utils import is_blacklisted
 
-class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True , validators = [validate_password])
-    password2 = serializers.CharField(write_only=True )
+User = get_user_model()
+class RegisterSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    display_name = serializers.CharField(max_length=50)
+    password = serializers.CharField(write_only=True)
+    password2 = serializers.CharField(write_only=True)
 
-    class Meta:
-        model = User
-        fields = ('id', 'email', 'display_name', 'password', 'password2')
-        extra_kwargs = {
-            'id' : {'read_only':True},
-        }
-
-    def validate(self, attrs):
-        if attrs['password'] != attrs['password2']:
-            raise serializers.ValidationError({"password2": "Passwords do not match."})
-        return attrs
-    def create(self, validated_data):
-        validated_data.pop('password2')  # password2 ko dictionary se remove kar diya
-        user = User.objects.create_user(**validated_data)
-        return user
-    def validate_email(self , value):
+    def validate_email(self, value):
         value = value.lower()
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("User with this Email already exists.")
+            raise serializers.ValidationError("Is email se account pehle se hai.")
         return value
 
+    def validate_password(self, value):
+        django_validate_password(value)       # Django ke password rules
+        return value
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["password2"]:
+            raise serializers.ValidationError({"password2": "Passwords match nahi karte."})
+        return attrs
+    
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -45,13 +46,17 @@ class UserSerializer(serializers.ModelSerializer):
                 f"Unsupported file format. Allowed formats: {', '.join(valid_extensions)}"
             )
         return value
-    def validate_email(self, value):
-        if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("Email already exists.")
-        return value.lower()
-
+    
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
+
+
+class RedisTokenRefreshSerializer(TokenRefreshSerializer):
+    def validate(self, attrs):
+        refresh = RefreshToken(attrs["refresh"])
+        if is_blacklisted(refresh["jti"]):
+            raise InvalidToken("Token logout ho chuka hai. Dobara login karo.")
+        return super().validate(attrs)
 
 class OTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -63,7 +68,7 @@ class OTPValidateSerializer(serializers.Serializer):
 class ResetPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
     reset_token = serializers.CharField()
-    new_password = serializers.CharField(write_only=True, validators=[validate_password])
+    new_password = serializers.CharField(write_only=True, validators=[django_validate_password])
     new_password2 = serializers.CharField(write_only=True)
 
     def validate(self, attrs):

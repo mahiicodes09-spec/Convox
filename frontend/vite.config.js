@@ -7,4 +7,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'https://smart-community-api-o0h9.onrender.com',
+        changeOrigin: true,
+      },
+    },
+  },
 })
