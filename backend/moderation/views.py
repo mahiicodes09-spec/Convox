@@ -10,10 +10,11 @@ from .models import ModerationLog
 from .permissions import is_moderator
 from .serializers import ActionSerializer, FlaggedMessageSerializer, ModerationLogSerializer
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from communities.models import Server, ServerMember
+from communities.models import Server, ServerMember , Channel
 from datetime import timedelta
 from django.utils import timezone
 from rest_framework.pagination import PageNumberPagination
+from django.db.models import Count
 # Create your views here.
 
 ROLE_RANK = {"member": 0, "moderator": 1, "admin": 2, "owner": 3}
@@ -113,3 +114,24 @@ class ModerationLogListView(generics.ListAPIView):
     def get_queryset(self):
         server = get_server_for_moderator(self.request.user, self.kwargs["server_id"])
         return ModerationLog.objects.filter(server=server).select_related("actor", "target_user")
+
+class ServerAnalyticsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: None})
+    def get(self, request, server_id):
+        server = get_server_for_moderator(request.user, server_id)
+        week_ago = timezone.now() - timedelta(days=7)
+        messages = Message.objects.filter(channel__server=server)
+        recent = messages.filter(created_at__gte=week_ago)
+        actions = ModerationLog.objects.filter(server=server).values("action").annotate(total=Count("id"))
+        busiest = recent.values("channel__name").annotate(total=Count("id")).order_by("-total")[:5]
+        return Response({
+            "member_count": ServerMember.objects.filter(server=server).count(),
+            "channel_count": Channel.objects.filter(server=server).count(),
+            "total_messages": messages.count(),
+            "messages_last_7_days": recent.count(),
+            "flagged_pending": messages.filter(moderation_status="flagged").count(),
+            "moderation_actions": {a["action"]: a["total"] for a in actions},
+            "active_channels": [{"channel": b["channel__name"], "messages": b["total"]} for b in busiest],
+        })
