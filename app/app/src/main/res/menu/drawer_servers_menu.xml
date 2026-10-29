@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/menu_servers"
+        android:title="My Community" />
+
+    <item
+        android:id="@+id/menu_profile"
+        android:title="Profile" />
+
+    <item
+        android:id="@+id/nav_members"
+        android:title="Members" />
+    <item
+        android:id="@+id/nav_moderator"
+        android:title="Moderator" />
+</menu>

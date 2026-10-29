@@ -74,6 +74,7 @@
 
 
             <EditText
+                android:id="@+id/etName"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="20dp"
@@ -88,6 +89,7 @@
 
 
             <EditText
+                android:id="@+id/etEmail"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="12dp"
@@ -102,6 +104,7 @@
 
 
             <EditText
+                android:id="@+id/etPassword"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="12dp"
@@ -116,6 +119,7 @@
 
 
             <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/signup_button"
                 android:layout_width="300dp"
                 android:layout_height="52dp"
                 android:layout_marginTop="20dp"
@@ -174,6 +178,7 @@
                     android:textColor="#64748B" />
 
                 <TextView
+                    android:id="@+id/login_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Login"
