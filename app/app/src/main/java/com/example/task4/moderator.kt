@@ -1,7 +1,7 @@
-
 package com.example.task4
 
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -12,8 +12,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.task4.moderation.FlaggedMsgAdapter
 import com.example.task4.moderation.ModerationLogAdapter
 import com.example.task4.moderation.ModerationVM
-import android.app.AlertDialog
-import android.widget.EditText
 
 class ModeratorActivity : AppCompatActivity() {
 
@@ -37,22 +35,14 @@ class ModeratorActivity : AppCompatActivity() {
         val queueButton = findViewById<Button>(R.id.btnModerationQueue)
         val logsButton = findViewById<Button>(R.id.btnModerationLogs)
 
-        queueRecyclerView =
-            findViewById(R.id.rvModerationQueue)
-
-        logsRecyclerView =
-            findViewById(R.id.rvModerationLogs)
-
-        emptyText =
-            findViewById(R.id.tvModerationEmpty)
+        queueRecyclerView = findViewById(R.id.rvModerationQueue)
+        logsRecyclerView = findViewById(R.id.rvModerationLogs)
+        emptyText = findViewById(R.id.tvModerationEmpty)
 
         title.text = "$serverName - Moderator"
 
-        queueRecyclerView.layoutManager =
-            LinearLayoutManager(this)
-
-        logsRecyclerView.layoutManager =
-            LinearLayoutManager(this)
+        queueRecyclerView.layoutManager = LinearLayoutManager(this)
+        logsRecyclerView.layoutManager = LinearLayoutManager(this)
 
         viewModel = ViewModelProvider(this)[ModerationVM::class.java]
 
@@ -86,27 +76,26 @@ class ModeratorActivity : AppCompatActivity() {
                     showModerationAction(message.id)
                 }
 
-            if (queueRecyclerView.visibility == android.view.View.VISIBLE) {
+            if (queueRecyclerView.visibility == View.VISIBLE) {
                 emptyText.text =
                     if (messages.isEmpty()) "No flagged messages found"
                     else ""
                 emptyText.visibility =
-                    if (messages.isEmpty()) android.view.View.VISIBLE
-                    else android.view.View.GONE
+                    if (messages.isEmpty()) View.VISIBLE
+                    else View.GONE
             }
         }
 
         viewModel.moderationLogs.observe(this) { logs ->
-            logsRecyclerView.adapter =
-                ModerationLogAdapter(logs)
+            logsRecyclerView.adapter = ModerationLogAdapter(logs)
 
-            if (logsRecyclerView.visibility == android.view.View.VISIBLE) {
+            if (logsRecyclerView.visibility == View.VISIBLE) {
                 emptyText.text =
                     if (logs.isEmpty()) "No moderation logs found"
                     else ""
                 emptyText.visibility =
-                    if (logs.isEmpty()) android.view.View.VISIBLE
-                    else android.view.View.GONE
+                    if (logs.isEmpty()) View.VISIBLE
+                    else View.GONE
             }
         }
 
@@ -122,55 +111,22 @@ class ModeratorActivity : AppCompatActivity() {
     }
 
     private fun showQueue() {
-        queueRecyclerView.visibility = android.view.View.VISIBLE
-        logsRecyclerView.visibility = android.view.View.GONE
-        emptyText.visibility = android.view.View.GONE
+        queueRecyclerView.visibility = View.VISIBLE
+        logsRecyclerView.visibility = View.GONE
+        emptyText.visibility = View.GONE
     }
 
     private fun showLogs() {
-        queueRecyclerView.visibility = android.view.View.GONE
-        logsRecyclerView.visibility = android.view.View.VISIBLE
-        emptyText.visibility = android.view.View.GONE
+        queueRecyclerView.visibility = View.GONE
+        logsRecyclerView.visibility = View.VISIBLE
+        emptyText.visibility = View.GONE
     }
-
 
     private fun showModerationAction(messageId: Int) {
-
-        val reasonInput = EditText(this)
-        reasonInput.hint = "Enter reason for this action"
-
-        val actions = arrayOf("Dismiss", "Warn", "Remove")
-
-        AlertDialog.Builder(this)
-            .setTitle("Moderate Message")
-            .setMessage("Choose an action for message ID: $messageId")
-            .setView(reasonInput)
-            .setItems(actions) { _, position ->
-
-                val action = when (position) {
-                    0 -> "dismiss"
-                    1 -> "warn"
-                    else -> "remove"
-                }
-
-                val reason = reasonInput.text.toString().trim()
-
-                if (reason.isEmpty()) {
-                    Toast.makeText(
-                        this,
-                        "Please enter a reason",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                } else {
-                    confirmModerationAction(
-                        messageId,
-                        action,
-                        reason
-                    )
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        Toast.makeText(
+            this,
+            "Selected message ID: $messageId",
+            Toast.LENGTH_SHORT
+        ).show()
     }
-
 }

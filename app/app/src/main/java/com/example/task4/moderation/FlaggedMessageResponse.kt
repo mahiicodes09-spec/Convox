@@ -18,3 +18,4 @@ data class FlaggedMessageAuthor(
     val display_name: String,
     val avatar: String?
 )
+

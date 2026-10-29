@@ -1,6 +1,6 @@
-
 package com.example.task4.moderation
 
+import com.google.gson.JsonElement
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -14,13 +14,13 @@ interface ModerationInterface {
     suspend fun getModerationQueue(
         @Header("Authorization") token: String,
         @Path("server_id") serverId: Int
-    ): Response<List<FlaggedMessageResponse>>
+    ): Response<JsonElement>
 
     @GET("api/servers/{server_id}/moderation/logs/")
     suspend fun getModerationLogs(
         @Header("Authorization") token: String,
         @Path("server_id") serverId: Int
-    ): Response<List<ModerationLogResponse>>
+    ): Response<JsonElement>
 
     @POST("api/moderation/messages/{message_id}/action/")
     suspend fun takeModerationAction(

@@ -1,10 +1,12 @@
-
 package com.example.task4.moderation
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
+import com.google.gson.JsonElement
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.launch
 
 class ModerationVM(application: Application) :
@@ -20,6 +22,26 @@ class ModerationVM(application: Application) :
         MutableLiveData<List<ModerationLogResponse>>()
 
     val error = MutableLiveData<String>()
+    private inline fun <reified T> parseList(element: JsonElement?): List<T>? {
+        if (element == null || element.isJsonNull) return emptyList()
+
+        val gson = Gson()
+        val listType = TypeToken.getParameterized(List::class.java, T::class.java).type
+
+        if (element.isJsonArray) {
+            return gson.fromJson<List<T>>(element, listType)
+        }
+
+        if (element.isJsonObject) {
+            for ((_, value) in element.asJsonObject.entrySet()) {
+                if (value.isJsonArray) {
+                    return gson.fromJson<List<T>>(value, listType)
+                }
+            }
+        }
+
+        return null
+    }
 
     fun loadModerationQueue(serverId: Int) {
         viewModelScope.launch {
@@ -28,15 +50,21 @@ class ModerationVM(application: Application) :
                     repository.getModerationQueue(serverId)
 
                 if (response.isSuccessful) {
-                    moderationQueue.value =
-                        response.body() ?: emptyList()
+                    val list = parseList<FlaggedMessageResponse>(response.body())
+                    if (list != null) {
+                        moderationQueue.value = list
+                    } else {
+                        // not a list: show what the server sent
+                        error.value = "QUEUE REPLY: ${response.body()}"
+                    }
                 } else {
+                    val details = response.errorBody()?.string()
                     error.value =
-                        "Failed to load queue: ${response.code()}"
+                        "Failed to load queue: ${response.code()} $details"
                 }
             } catch (e: Exception) {
                 error.value =
-                    e.message ?: "Unable to load moderation queue"
+                    "QUEUE ERROR: ${e.message}"
             }
         }
     }
@@ -48,15 +76,20 @@ class ModerationVM(application: Application) :
                     repository.getModerationLogs(serverId)
 
                 if (response.isSuccessful) {
-                    moderationLogs.value =
-                        response.body() ?: emptyList()
+                    val list = parseList<ModerationLogResponse>(response.body())
+                    if (list != null) {
+                        moderationLogs.value = list
+                    } else {
+                        error.value = "LOGS REPLY: ${response.body()}"
+                    }
                 } else {
+                    val details = response.errorBody()?.string()
                     error.value =
-                        "Failed to load logs: ${response.code()}"
+                        "Failed to load logs: ${response.code()} $details"
                 }
             } catch (e: Exception) {
                 error.value =
-                    e.message ?: "Unable to load moderation logs"
+                    "LOGS ERROR: ${e.message}"
             }
         }
     }

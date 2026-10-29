@@ -1,9 +1,9 @@
-
 package com.example.task4.moderation
 
 import android.content.Context
 import com.example.task4.ApiClient
 import com.example.task4.SessionManager
+import com.google.gson.JsonElement
 import retrofit2.Response
 
 class ModerationRepository(context: Context) {
@@ -17,7 +17,7 @@ class ModerationRepository(context: Context) {
 
     suspend fun getModerationQueue(
         serverId: Int
-    ): Response<List<FlaggedMessageResponse>> {
+    ): Response<JsonElement> {
         return ApiClient.moderationApi.getModerationQueue(
             token(),
             serverId
@@ -26,7 +26,7 @@ class ModerationRepository(context: Context) {
 
     suspend fun getModerationLogs(
         serverId: Int
-    ): Response<List<ModerationLogResponse>> {
+    ): Response<JsonElement> {
         return ApiClient.moderationApi.getModerationLogs(
             token(),
             serverId
