@@ -1,283 +1,213 @@
-# Smart Community – Backend
+# Smart Community (Convox) – Backend
 
-Django backend for **Smart Community**, a Discord-like real-time chat platform with AI-powered moderation.
-
-- **Live API:** https://smart-community-api-o0h9.onrender.com
-- **Swagger docs:** https://smart-community-api-o0h9.onrender.com/api/docs/
-- **Health check:** https://smart-community-api-o0h9.onrender.com/api/health/
-
----
-
-## Features
-
-| Area | What it does |
-|---|---|
-| Accounts | Email + password signup with OTP verification, JWT login, logout, forgot/reset password, profile with avatar |
-| Redis | Pending signups, OTPs and reset tokens are stored in Redis with a 10 minute TTL. Logout blacklist and login rate limit also use Redis |
-| Servers | Create a server, join with an invite code or link, public invite preview |
-| Roles | owner / admin / moderator / member per server. Only the owner can change roles (no privilege escalation) |
-| Channels | Text channels inside a server. A `general` channel is created automatically |
-| Messages | History with cursor pagination, send, edit own message, delete (author or owner/admin/moderator) |
-| Real-time chat | WebSocket per channel using Django Channels + Redis channel layer |
-| AI moderation | Every new or edited message is checked by the ML service (toxicity + spam). Toxic/spam messages are **flagged**, not blocked |
-| Moderator tools | Flagged message queue, dismiss / warn / remove actions with a reason, and an audit log |
-
----
+Django backend for a Discord-like real-time chat app with AI toxicity/spam moderation.
+The React frontend and the FastAPI ML service are built by teammates; this folder is the API + WebSocket server.
 
 ## Tech stack
 
-- Python 3.14, Django 6.1, Django REST Framework
-- SimpleJWT (authentication), drf-spectacular (Swagger / OpenAPI)
-- Django Channels + Daphne (WebSocket, ASGI server)
-- Redis (cache + channel layer), PostgreSQL on Neon (production), SQLite (local)
-- Brevo SMTP (OTP emails), WhiteNoise (static files)
-- Deployed on Render (web service + Key Value / Redis)
+- Django 6.1, Django REST Framework, SimpleJWT
+- drf-spectacular (Swagger docs)
+- Django Channels + Daphne (WebSockets)
+- Redis (optional, via `REDIS_URL`) for cache and channel layer, falls back to in-memory
+- PostgreSQL (Neon) in production, SQLite locally
+- Cloudinary for media storage (optional)
+- Brevo SMTP for OTP emails
+- WhiteNoise for static files
+- Docker + docker-compose (web + redis)
+- Deployed on Render
 
----
+## Features
 
-## Folder structure
+- **Auth:** register with email OTP, login, token refresh, logout (JWT blacklist), profile with avatar, forgot/reset password with OTP
+- **Servers and channels:** create servers, join with invite code/link, invite preview, channels, member list
+- **Roles:** owner, admin, moderator, member
+- **Chat:** REST message API with cursor pagination, real-time WebSocket chat, edit and delete
+- **File attachments:** jpg, png, webp, pdf, mp4 (max 10 MB)
+- **AI moderation:** every message is sent to the ML service for toxicity and spam scores
+- **Moderation tools:** review queue, actions (dismiss, warn, remove, mute, suspend), audit log
+- **Search and filter:** message search, member search, filter by author or role
+- **Rate limiting:** DRF throttling plus a login lock after repeated failures
+- **Server analytics:** counts and activity for moderators
+
+## Project structure
 
 ```
 backend/
-├── config/          settings, main urls, asgi (HTTP + WebSocket router)
-├── accounts/        custom User, register/OTP/login/logout/reset, Redis helpers
-├── communities/     Server, ServerMember (roles), Channel, invites
-├── chat/            Message, REST views, WebSocket consumer, JWT middleware, ML client
-├── moderation/      ModerationLog, flagged queue, moderator actions
-├── manage.py
-├── requirements.txt
-└── .env.example
+  config/        settings, urls, asgi, wsgi
+  accounts/      user model, auth views, OTP and blacklist helpers (utils.py)
+  communities/   Server, ServerMember, Channel
+  chat/          Message, Attachment, REST views, WebSocket consumer, moderation call
+  moderation/    ModerationLog, queue, actions, analytics
 ```
 
----
-
-## Local setup (Windows / PowerShell)
+## Local setup (Windows PowerShell)
 
 ```powershell
 cd backend
 python -m venv venv
-.\venv\Scripts\Activate.ps1
+venv\Scripts\activate
 pip install -r requirements.txt
-copy .env.example .env        # then edit .env (at least SECRET_KEY)
+```
+
+Create a `.env` file in `backend/` (see the table below), then:
+
+```powershell
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Open http://127.0.0.1:8000/api/docs/ for Swagger.
+Open:
 
-`runserver` starts **Daphne** (because `daphne` is in `INSTALLED_APPS`), so WebSockets work locally too.
+- API docs: http://127.0.0.1:8000/api/docs/
+- Health check: http://127.0.0.1:8000/api/health/
 
-Locally you do not need Redis or PostgreSQL:
-- No `REDIS_URL` → local-memory cache + in-memory channel layer
-- No `DATABASE_URL` → SQLite
-- `USE_BREVO=False` → OTP emails are printed in the terminal
+If port 8000 is busy, run `python manage.py runserver 8001`.
 
----
+### Run with Docker
+
+```powershell
+cd backend
+docker compose up --build
+```
+
+This starts the web service and Redis. `/api/health/` should then report `"cache": "redis"`.
+Stop it with `docker compose down` before running `runserver` locally.
 
 ## Environment variables
 
-See `.env.example`. Never commit the real `.env`.
+| Variable | Purpose | Default |
+|---|---|---|
+| `SECRET_KEY` | Django secret key (required) | none |
+| `DEBUG` | Debug mode | `False` |
+| `ALLOWED_HOSTS` | Comma separated hosts | `127.0.0.1,localhost` |
+| `CORS_ALLOWED_ORIGINS` | Frontend origins | `http://localhost:5173,http://localhost:3000` |
+| `CSRF_TRUSTED_ORIGINS` | Trusted origins | empty |
+| `DATABASE_URL` | Database URL | SQLite file |
+| `REDIS_URL` | Enables Redis cache and channel layer | empty (in-memory) |
+| `FRONTEND_URL` | Used to build invite links | `http://localhost:5173` |
+| `ML_SERVICE_URL` | ML prediction endpoint | empty (moderation skipped) |
+| `ML_TIMEOUT_SECONDS` | ML request timeout | `5` |
+| `ML_MODEL_VERSION` | Stored with each moderated message | `convox-ml-api-0.1.0` |
+| `TOXICITY_THRESHOLD` | Flag if toxicity probability is at or above this | `0.7` |
+| `SPAM_THRESHOLD` | Flag if spam probability is at or above this | `0.9` |
+| `USE_BREVO` | Send real emails through Brevo | `False` (console) |
+| `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY` | Brevo credentials | none |
+| `DEFAULT_FROM_EMAIL` | Sender address | `no-reply@smartcommunity.local` |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Enable Cloudinary media storage | empty (local disk) |
 
-| Variable | Required | Example / default | Purpose |
-|---|---|---|---|
-| `SECRET_KEY` | yes | – | Django secret key |
-| `DEBUG` | no | `False` | `True` only for local |
-| `ALLOWED_HOSTS` | yes (prod) | `127.0.0.1,localhost` | Comma separated hosts |
-| `CSRF_TRUSTED_ORIGINS` | prod | `https://*.onrender.com` | For admin login over HTTPS |
-| `CORS_ALLOWED_ORIGINS` | yes | `http://localhost:5173,https://convox-weld.vercel.app` | Frontend origins (no spaces, no trailing `/`) |
-| `FRONTEND_URL` | yes | `https://convox-weld.vercel.app` | Used to build invite links |
-| `DATABASE_URL` | prod | – | PostgreSQL URL. Empty = SQLite |
-| `REDIS_URL` | prod | – | Redis URL. Empty = local memory |
-| `USE_BREVO` | no | `False` | `True` = send real emails |
-| `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY` | if Brevo | – | Brevo SMTP credentials |
-| `DEFAULT_FROM_EMAIL` | yes | – | Verified sender email |
-| `ML_SERVICE_URL` | no | `https://convox-ml-api.onrender.com/predict` | ML moderation API. Empty = moderation off |
-| `TOXICITY_THRESHOLD` | no | `0.7` | Flag if toxicity probability ≥ this |
-| `SPAM_THRESHOLD` | no | `0.9` | Flag if spam probability ≥ this |
-| `ML_TIMEOUT_SECONDS` | no | `5` | Max wait for the ML API |
-| `ML_MODEL_VERSION` | no | `convox-ml-api-0.1.0` | Stored with each moderation result |
+Never commit `.env`.
 
----
+## API overview
 
-## Authentication
+All paths are under `/api/`. Authenticated endpoints need `Authorization: Bearer <access_token>`.
 
-All endpoints need a JWT access token unless marked **public**:
+### Auth (`/api/auth/`)
 
-```
-Authorization: Bearer <access_token>
-```
+| Method | Path | Description |
+|---|---|---|
+| POST | `register/` | Start registration, sends OTP |
+| POST | `verify-email/` | Verify OTP and create the user |
+| POST | `resend-verification/` | Resend OTP |
+| POST | `login/` | Get access and refresh tokens |
+| POST | `token/refresh/` | Refresh the access token |
+| POST | `logout/` | Blacklist the refresh token |
+| GET, PATCH | `me/` | View or update profile (avatar max 2 MB) |
+| POST | `forgot-password/` | Send reset OTP |
+| POST | `verify-reset-otp/` | Verify OTP, returns a reset token |
+| POST | `reset-password/` | Set a new password |
 
-- Access token: 30 minutes. Refresh token: 7 days.
-- After logout, both tokens stop working immediately (Redis blacklist).
-- Login is locked for 15 minutes after 5 wrong passwords (returns `429`).
+### Servers, channels, members
 
----
-
-## REST API
-
-Base URL: `/api/`
-
-### Accounts – `/api/auth/`
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| POST | `register/` | public | `email, display_name, password, password2` → sends OTP (202). User is **not** created yet |
-| POST | `verify-email/` | public | `email, otp` → creates user, returns `user, access, refresh` (201) |
-| POST | `resend-verification/` | public | `email` → new OTP (60 s cooldown) |
-| POST | `login/` | public | `email, password` → `access, refresh` |
-| POST | `token/refresh/` | public | `refresh` → new `access` |
-| POST | `logout/` | yes | `refresh` → blacklists refresh + current access token (204) |
-| GET / PATCH | `me/` | yes | Own profile (`display_name, bio, status, avatar`). Avatar: jpg/png/webp, max 2 MB |
-| POST | `forgot-password/` | public | `email` → reset OTP (always 200) |
-| POST | `verify-reset-otp/` | public | `email, otp` → `reset_token` (one time, 10 min) |
-| POST | `reset-password/` | public | `email, reset_token, new_password, new_password2` |
-
-### Servers, members, channels
-
-| Method | Path | Who | Description |
-|---|---|---|---|
-| GET | `servers/` | member | Servers I have joined |
-| POST | `servers/` | any user | Create server (creator = owner, `general` channel auto created) |
-| GET / PATCH / DELETE | `servers/<id>/` | member / owner | Details for members, edit/delete only owner |
-| POST | `servers/join/` | any user | `invite_code` (code or full link) → 201 joined, 200 already member |
-| GET | `invites/<code>/` | **public** | Invite preview: name, description, icon, member count |
-| GET | `servers/<id>/members/` | member | Members with roles |
-| PATCH | `servers/<id>/members/<user_id>/` | owner | `{"role": "admin" \| "moderator" \| "member"}` |
-| GET | `servers/<id>/channels/` | member | Channels of the server |
-| POST | `servers/<id>/channels/` | owner / admin | `{"name": "doubts"}` (saved as lowercase, spaces → `-`) |
+| Method | Path | Description |
+|---|---|---|
+| GET, POST | `servers/` | List your servers or create one |
+| POST | `servers/join/` | Join with an invite code or link |
+| GET, PATCH, DELETE | `servers/<id>/` | Server detail (changes are owner only) |
+| GET, POST | `servers/<id>/channels/` | List channels or create one (owner and admin) |
+| GET | `servers/<id>/members/` | List members, supports `?role=` and `?search=` |
+| PATCH | `servers/<id>/members/<user_id>/` | Change a role (owner only) |
+| GET | `invites/<code>/` | Public invite preview |
 
 ### Messages
 
-| Method | Path | Who | Description |
-|---|---|---|---|
-| GET | `channels/<id>/messages/` | member | Latest 50 messages first. Use `next` link for older ones |
-| POST | `channels/<id>/messages/` | member | `{"content": "hello"}` (max 2000 chars) |
-| GET | `messages/<id>/` | member | One message |
-| PATCH | `messages/<id>/` | author | Edit content (sets `edited_at`, re-checked by AI) |
-| DELETE | `messages/<id>/` | author / owner / admin / moderator | Delete message |
-
-Message object:
-
-```json
-{
-  "id": 12,
-  "channel": 3,
-  "author": {"id": 1, "display_name": "Rahul", "avatar": null},
-  "content": "hello",
-  "created_at": "2026-10-25T10:30:00Z",
-  "edited_at": null,
-  "moderation_status": "clean"
-}
-```
-
-`moderation_status`: `unchecked` (ML not available), `clean`, `flagged`, `reviewed` (warned by a moderator).
+| Method | Path | Description |
+|---|---|---|
+| GET, POST | `channels/<id>/messages/` | List (cursor pagination, 50 per page) or send, supports `?search=` and `?author=` |
+| GET, PATCH, DELETE | `messages/<id>/` | Read, edit (author only) or delete (author, or owner/admin/moderator) |
+| POST | `channels/<id>/attachments/` | Upload a file (multipart, field name `file`) |
 
 ### Moderation
 
-| Method | Path | Who | Description |
-|---|---|---|---|
-| GET | `servers/<id>/moderation/queue/` | owner / admin / moderator | Flagged messages with label and score |
-| POST | `moderation/messages/<id>/action/` | owner / admin / moderator | `{"action": "dismiss" \| "warn" \| "remove", "reason": "..."}` |
-| GET | `servers/<id>/moderation/logs/` | owner / admin / moderator | Audit log (action, actor, target user, message id, reason, time) |
-
-| Action | Result |
-|---|---|
-| `dismiss` | AI was wrong → message becomes `clean` |
-| `warn` | Message stays, marked `reviewed` |
-| `remove` | Message is deleted |
-
----
-
-## WebSocket (real-time chat)
-
-```
-ws://127.0.0.1:8000/ws/channels/<channel_id>/?token=<access_token>
-wss://smart-community-api-o0h9.onrender.com/ws/channels/<channel_id>/?token=<access_token>
-```
-
-- The token goes in the query string because browsers cannot send an `Authorization` header with WebSocket.
-- Connection is rejected if the token is missing, invalid, logged out, or the user is not a member of the server.
-
-Send:
-
-```json
-{"content": "hello"}
-```
-
-Receive (everyone connected to the channel, including the sender):
-
-```json
-{"type": "message.new", "message": { ...message object... }}
-```
-
-Error:
-
-```json
-{"type": "error", "detail": "Message khaali nahi ho sakta."}
-```
-
-Messages sent over WebSocket are saved in the database, so they also appear in the history API.
-
-Quick browser test (open the page on the same server, then the console with `Ctrl + Shift + J`):
-
-```js
-const ws = new WebSocket("ws://127.0.0.1:8000/ws/channels/1/?token=TOKEN");
-ws.onmessage = (e) => console.log(JSON.parse(e.data));
-ws.send(JSON.stringify({content: "hello"}));
-```
-
----
-
-## AI moderation flow
-
-```
-message (REST or WebSocket)
-   → chat/moderation.py → POST ML_SERVICE_URL {"message": "..."}
-   → toxicity_probability ≥ 0.7  → flagged (label "toxic")
-   → else spam_probability ≥ 0.9 → flagged (label "spam")
-   → else                        → clean
-   → saved with toxicity_label, toxicity_score, model_version
-   → moderator reviews in the queue → dismiss / warn / remove → audit log
-```
-
-- Expected ML response: `{"toxicity_detection": {"toxicity_probability": ...}, "spam_detection": {"spam_probability": ...}}`
-- The AI only gives a **signal**. Messages are never auto-deleted; a human moderator decides (as required by the project brief).
-- If the ML service is down, slow (> 5 s) or not configured, the message is still saved with `unchecked`. Chat never stops.
-
----
-
-## Redis usage
-
-| Key | TTL | Used for |
+| Method | Path | Description |
 |---|---|---|
-| `pending_reg:<email>` | 10 min | Signup data (hashed password + hashed OTP) until the email is verified |
-| `reset_otp:<email>` | 10 min | Forgot-password OTP (hashed) |
-| `reset_token:<email>` | 10 min | One-time reset token (hashed) |
-| `login_fail:<email>` | 15 min | Wrong password counter (lock after 5) |
-| `blacklist:<jti>` | until token expiry | Logged-out JWTs |
-| channel layer | – | Delivers WebSocket messages to every connected user |
+| GET | `servers/<id>/moderation/queue/` | Flagged messages for review |
+| GET | `servers/<id>/moderation/logs/` | Audit log of moderation actions |
+| POST | `moderation/messages/<id>/action/` | Apply an action: dismiss, warn, remove, mute, suspend |
+| GET | `servers/<id>/analytics/` | Server statistics (moderators only) |
 
----
+Queue and logs use page-number pagination (20 per page, max 100).
+
+### Other
+
+- `GET /api/health/` – service and cache status
+- `GET /api/docs/` – Swagger UI, `GET /api/schema/` – OpenAPI schema
+
+## WebSocket
+
+Connect to:
+
+```
+ws://<host>/ws/channels/<channel_id>/?token=<access_token>
+```
+
+- Only members of the channel's server are accepted (others are closed with code 4003).
+- Send: `{"content": "hello"}`
+- Receive: `{"type": "message.new", "message": {...}}`
+- Messages created through the REST API are also broadcast to the channel.
+
+## How moderation works
+
+1. A message is saved, and its text is sent to `ML_SERVICE_URL`.
+2. If the toxicity probability is at or above `TOXICITY_THRESHOLD`, it is labelled `toxic`. Otherwise, if the spam probability is at or above `SPAM_THRESHOLD`, it is labelled `spam`. Otherwise it is `non-toxic`.
+3. Toxic or spam messages get the status `flagged`, clean ones get `clean`.
+4. If the ML service is down or `ML_SERVICE_URL` is empty, the status stays `unchecked` and chat keeps working.
+5. Flagged and reviewed messages are masked with `*` for everyone except the author.
+6. Moderators review flagged messages in the queue and apply an action. Every action is stored in the audit log.
+7. Muted or suspended members cannot send messages.
+
+## Roles
+
+| Role | Can do |
+|---|---|
+| owner | everything, including changing roles and server settings |
+| admin | create channels, moderate |
+| moderator | review the queue, apply actions, delete others' messages |
+| member | chat, edit and delete own messages |
+
+## Rate limits
+
+Anonymous 60/min, authenticated 120/min, login 10/min, OTP endpoints 5/min. After 5 wrong passwords, login is locked for 15 minutes. OTPs expire after 10 minutes with a maximum of 5 attempts.
+
+## Tests
+
+```powershell
+python manage.py test moderation
+```
 
 ## Deployment (Render)
 
-- **Root directory:** `backend`
-- **Build command:** `pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate`
-- **Start command:** `daphne -b 0.0.0.0 -p $PORT config.asgi:application`
-- **Redis:** Render Key Value (same region as the web service). Put its *Internal* URL in `REDIS_URL`
-- **Database:** Neon PostgreSQL via `DATABASE_URL`
-- Render deploys from the `dev` branch. Workflow: push to `backend` → PR `backend → dev` → merge → auto deploy
-- Free services sleep after 15 min. UptimeRobot pings `/api/health/` every 5 minutes (do the same for the ML API)
+- Render deploys from the `dev` branch.
+- Start command: `daphne -b 0.0.0.0 -p $PORT config.asgi:application`
+- Make sure `python manage.py migrate` runs in the build or pre-deploy step.
+- Set the environment variables from the table above in the Render dashboard.
+- `/api/health/` is pinged by UptimeRobot to avoid cold starts on the free plan.
 
----
+## Known limitations and not implemented
 
-## Known limitations / future scope
-
-- Direct messages and group conversations
-- File and image attachments, reactions, message search
-- Notifications, typing indicator, online presence
-- Private channels, invite revoke/expiry
-- Mute / suspend members, server analytics
-- Uploaded avatars/icons are lost on Render restart (needs Cloudinary/S3)
-- The ML model misses some Hinglish insults (for example "tu pagal hai kya bewakoof" is non-toxic) – reported to the ML team
+- OAuth (Google/GitHub) is not implemented.
+- reCAPTCHA is not implemented.
+- WebRTC voice/video: a signaling consumer exists only on the `backend` branch and is not merged. It needs frontend work and a TURN server for strict networks.
+- Edit and delete events are not pushed over the WebSocket.
+- Direct messages, private channels, reactions, and notifications are not implemented.
+- Without Cloudinary, uploaded files are stored on local disk, which Render clears on restart.
