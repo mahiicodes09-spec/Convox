@@ -5,16 +5,13 @@ from django.contrib.auth.hashers import make_password, check_password
 from django.core.cache import cache
 from django.core.mail import send_mail
 
-# Ye saari values Redis (Django cache) mein rehti hain, DB mein nahi.
-OTP_TTL = 600              # OTP 10 minute tak valid
-MAX_ATTEMPTS = 5           # 5 galat OTP ke baad OTP khatam
-RESEND_SECONDS = 60        # naya OTP 60 second ke baad hi
-RESET_TOKEN_TTL = 600      # reset token 10 minute valid
-LOGIN_MAX_FAILS = 5        # 5 galat password ke baad lock
-LOGIN_LOCK_SECONDS = 900   # lock 15 minute ka
+OTP_TTL = 600              
+MAX_ATTEMPTS = 5           
+RESEND_SECONDS = 60        
+RESET_TOKEN_TTL = 600      
+LOGIN_MAX_FAILS = 5        
+LOGIN_LOCK_SECONDS = 900   
 
-
-# ---------- Redis keys ----------
 def _reg_key(email):
     return f"pending_reg:{email.lower()}"
 
@@ -31,7 +28,6 @@ def _blacklist_key(jti):
     return f"blacklist:{jti}"
 
 
-# ---------- OTP helpers (register aur reset dono yahi use karte hain) ----------
 def _new_code():
     return f"{secrets.randbelow(10**6):06d}"
 
@@ -92,7 +88,6 @@ def _resend_otp(key, email, subject):
     return True
 
 
-# ---------- Registration (user DB mein OTP verify hone ke baad hi banta hai) ----------
 REG_SUBJECT = "Smart Community - Email verification code"
 
 def start_registration(email, display_name, raw_password):
@@ -108,7 +103,6 @@ def resend_registration(email):
     return _resend_otp(_reg_key(email), email, REG_SUBJECT)
 
 
-# ---------- Forgot / reset password ----------
 RESET_SUBJECT = "Smart Community - Password reset code"
 
 def start_password_reset(email):
@@ -132,7 +126,6 @@ def use_reset_token(email, token):
     return True
 
 
-# ---------- Login rate limit ----------
 def is_login_locked(email):
     fails = cache.get(_login_fail_key(email), 0)
     return fails >= LOGIN_MAX_FAILS
@@ -147,8 +140,6 @@ def record_failed_login(email):
 def clear_failed_logins(email):
     cache.delete(_login_fail_key(email))
 
-
-# ---------- Logout: JWT blacklist ----------
 def blacklist_token(token):
     seconds_left = int(token["exp"] - time.time())
     if seconds_left > 0:

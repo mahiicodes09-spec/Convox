@@ -32,7 +32,7 @@ class RegisterView(APIView):
         d = s.validated_data
         start_registration(d["email"], d["display_name"], d["password"])
         return Response(
-            {"detail": "OTP bhej diya gaya hai. 10 minute me verify karo."},
+            {"detail": "OTP sent, verify within 10 minutes"},
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -49,8 +49,8 @@ class VerifyOTPView(APIView):
         email = s.validated_data["email"].lower()
         data = verify_registration(email, s.validated_data["otp"])
         if data is None:
-            return Response({"detail": "OTP galat hai ya expire ho gaya."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Wrong OTP or OTP is expired"},
+                status=status.HTTP_400_BAD_REQUEST)
         try:
             user = User.objects.create(
                 email=email,
@@ -59,8 +59,8 @@ class VerifyOTPView(APIView):
                 is_email_verified=True,
             )
         except IntegrityError:
-            return Response({"detail": "Account pehle se bana hua hai."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Account from this email is already created"},
+                status=status.HTTP_400_BAD_REQUEST)
         refresh = RefreshToken.for_user(user)
         return Response({
             "user": UserSerializer(user, context={"request": request}).data,
@@ -79,7 +79,7 @@ class ResendVerificationView(APIView):
         s = OTPSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         resend_registration(s.validated_data["email"].lower())
-        return Response({"detail": "Agar registration pending hai to naya OTP bhej diya gaya hai (60 second ka gap rakho)."})
+        return Response({"detail": "if registration is pending new OTP is sent within the gap of 60 seconds."})
 
 
 class LoginView(TokenObtainPairView):
@@ -87,8 +87,8 @@ class LoginView(TokenObtainPairView):
     def post(self, request, *args, **kwargs):
         email = str(request.data.get("email", "")).lower()
         if is_login_locked(email):
-            return Response({"detail": "Bahut saare galat try. 15 minute baad dobara try karo."},
-                            status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response({"detail": "too many wrong requests, try again after 15 minutes"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS)
         try:
             response = super().post(request, *args, **kwargs)
         except AuthenticationFailed:
@@ -177,6 +177,6 @@ class LogoutView(APIView):
             refresh = RefreshToken(s.validated_data["refresh"])
         except TokenError:
             return Response({"detail": "Invalid token."}, status=status.HTTP_400_BAD_REQUEST)
-        blacklist_token(refresh)        # refresh token ab naya access nahi bana payega
-        blacklist_token(request.auth)   # abhi wala access token bhi turant band
+        blacklist_token(refresh)       
+        blacklist_token(request.auth)  
         return Response(status=status.HTTP_204_NO_CONTENT)

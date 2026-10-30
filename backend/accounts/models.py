@@ -24,5 +24,3 @@ class User(AbstractBaseUser , PermissionsMixin):
     REQUIRED_FIELDS = ['display_name']
     def __str__(self):
         return self.email
-
-# EmailOTP model hata diya: ab saare OTP Redis mein rehte hain (accounts/utils.py).
