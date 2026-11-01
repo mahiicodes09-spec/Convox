@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MessageCircle, Eye, EyeOff } from "lucide-react";
-import GoogleAuthButton from "../components/GoogleAuthButton";
 import api from "../services/api";
 
 // Reusable password input component
@@ -367,21 +366,6 @@ return ( <main className="flex min-h-screen items-center justify-center bg-slate
         {loading ? "Creating account..." : "Create Account"}
       </button>
 
-      {/* Divider */}
-      <div className="relative py-2">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-slate-200" />
-        </div>
-
-        <div className="relative flex justify-center">
-          <span className="bg-white px-3 text-xs font-medium uppercase tracking-wider text-slate-400">
-            Or sign up with
-          </span>
-        </div>
-      </div>
-
-      {/* Google Sign-Up - existing UI retained */}
-      <GoogleAuthButton text="Sign up with Google" />
     </form>
 
     {/* Login link */}
