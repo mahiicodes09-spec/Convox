@@ -8,19 +8,27 @@ import {
 } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  Activity,
   AlertTriangle,
   ArrowLeft,
+  BarChart3,
   Check,
   ClipboardList,
   Clock,
   Copy,
+  Download,
+  ExternalLink,
+  FileText,
   Hash,
   Info,
   LoaderCircle,
   Menu,
+  MessageCircle,
+  Paperclip,
   Pencil,
   Plus,
   RotateCw,
+  Search,
   ShieldAlert,
   ShieldCheck,
   Settings2,
@@ -34,8 +42,81 @@ import api from "../services/api";
 import "./CommunityWorkspacePage.css";
 
 function getApiErrorMessage(error, fallback) {
+  if (error.response?.status === 429) {
+    const retryAfter = error.response.headers?.["retry-after"];
+    if (retryAfter) {
+      return `Rate limit reached. Please wait ${retryAfter} second${retryAfter === "1" ? "" : "s"} before trying again.`;
+    }
+    return "You are making requests too quickly. Please wait a moment and try again.";
+  }
+  if (error.response?.status === 403) {
+    const detail = error.response?.data?.detail || error.response?.data?.message;
+    return typeof detail === "string" ? detail : "You do not have permission to perform this action.";
+  }
   const detail = error.response?.data?.detail || error.response?.data?.message;
-  return typeof detail === "string" ? detail : error.message || fallback;
+  if (typeof detail === "string") return detail;
+  if (typeof error.response?.data === "object" && error.response?.data !== null) {
+    const firstKey = Object.keys(error.response.data)[0];
+    const val = error.response.data[firstKey];
+    if (Array.isArray(val) && typeof val[0] === "string") return `${firstKey}: ${val[0]}`;
+    if (typeof val === "string") return `${firstKey}: ${val}`;
+  }
+  return error.message || fallback;
+}
+
+function formatBytes(bytes) {
+  if (bytes == null || isNaN(bytes)) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function validateAttachmentFile(file) {
+  if (!file) return "No file selected.";
+  const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
+  if (file.size > maxSizeBytes) {
+    return `File size (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds the 10MB limit.`;
+  }
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  const allowedExts = ["jpg", "jpeg", "png", "webp", "pdf", "mp4"];
+  const allowedTypes = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/pdf",
+    "video/mp4",
+  ];
+  if (!allowedExts.includes(ext) && !allowedTypes.includes(file.type)) {
+    return "Unsupported file type. Please select a JPG, PNG, WEBP, PDF, or MP4 file.";
+  }
+  return null;
+}
+
+function getChannelWebSocketUrl(channelId, token) {
+  if (!channelId || !token) return "";
+  const customWs = import.meta.env.VITE_WS_BASE_URL;
+  if (customWs) {
+    const base = customWs.replace(/\/+$/, "");
+    return `${base}/ws/channels/${encodeURIComponent(channelId)}/?token=${encodeURIComponent(token)}`;
+  }
+  const apiBase = import.meta.env.VITE_API_BASE_URL || "/api";
+  let wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  let wsHost = window.location.host;
+
+  if (apiBase.startsWith("http://") || apiBase.startsWith("https://")) {
+    try {
+      const parsed = new URL(apiBase);
+      wsProtocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+      wsHost = parsed.host;
+    } catch {
+      // fallback
+    }
+  } else if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    wsProtocol = "wss:";
+    wsHost = "smart-community-api-o0h9.onrender.com";
+  }
+
+  return `${wsProtocol}//${wsHost}/ws/channels/${encodeURIComponent(channelId)}/?token=${encodeURIComponent(token)}`;
 }
 
 function getChannelServerId(channel) {
@@ -73,11 +154,13 @@ function mergeMessagesChronologically(existing, incoming) {
 }
 
 function canModifyMessage(message, profile) {
+  const authorId =
+    typeof message?.author === "object" ? message?.author?.id : message?.author;
   return (
     message?.id != null &&
     profile?.id != null &&
-    message.author?.id != null &&
-    String(message.author.id) === String(profile.id)
+    authorId != null &&
+    String(authorId) === String(profile.id)
   );
 }
 
@@ -158,6 +241,45 @@ export default function CommunityWorkspacePage({ profile }) {
   const [actionModalError, setActionModalError] = useState("");
   const actionModalDialogRef = useRef(null);
   const actionModalTriggerRef = useRef(null);
+
+  // Real-time WebSocket connection state
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef(null);
+  const wsReconnectTimerRef = useRef(null);
+
+  // Attachments upload state
+  const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [attachmentError, setAttachmentError] = useState("");
+  const fileInputRef = useRef(null);
+
+  // Message search and author filtering state
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
+  const [debouncedMessageSearch, setDebouncedMessageSearch] = useState("");
+  const [messageAuthorFilter, setMessageAuthorFilter] = useState("");
+
+  // Member search and role filtering state
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
+  const [debouncedMemberSearch, setDebouncedMemberSearch] = useState("");
+  const [memberRoleFilter, setMemberRoleFilter] = useState("");
+
+  // Moderation queue page pagination state
+  const [moderationQueuePage, setModerationQueuePage] = useState(1);
+  const [moderationQueueCount, setModerationQueueCount] = useState(0);
+  const [moderationQueueHasNext, setModerationQueueHasNext] = useState(false);
+  const [moderationQueueHasPrev, setModerationQueueHasPrev] = useState(false);
+
+  // Moderation logs page pagination state
+  const [moderationLogsPage, setModerationLogsPage] = useState(1);
+  const [moderationLogsCount, setModerationLogsCount] = useState(0);
+  const [moderationLogsHasNext, setModerationLogsHasNext] = useState(false);
+  const [moderationLogsHasPrev, setModerationLogsHasPrev] = useState(false);
+
+  // Server analytics state
+  const [serverAnalytics, setServerAnalytics] = useState(null);
+  const [serverAnalyticsLoading, setServerAnalyticsLoading] = useState(false);
+  const [serverAnalyticsError, setServerAnalyticsError] = useState("");
+  const [serverAnalyticsServerId, setServerAnalyticsServerId] = useState("");
   const [welcomeActionMessage, setWelcomeActionMessage] = useState("");
   const [inviteFriendsOpen, setInviteFriendsOpen] = useState(false);
   const [inviteCopied, setInviteCopied] = useState(false);
@@ -194,6 +316,22 @@ export default function CommunityWorkspacePage({ profile }) {
     selectedServerIdRef.current = serverId;
     selectedChannelIdRef.current = selectedChannelId;
   }, [selectedChannelId, serverId]);
+
+  // Debounce message search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedMessageSearch(messageSearchQuery.trim());
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [messageSearchQuery]);
+
+  // Debounce member search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedMemberSearch(memberSearchQuery.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [memberSearchQuery]);
 
   const handleRequestError = useCallback(
     (error, setError, fallback) => {
@@ -288,6 +426,8 @@ export default function CommunityWorkspacePage({ profile }) {
     moderationQueueServerId === serverId ? moderationQueue : [];
   const visibleModerationLogs =
     moderationLogsServerId === serverId ? moderationLogs : [];
+  const visibleServerAnalytics =
+    serverAnalyticsServerId === serverId ? serverAnalytics : null;
   const currentMember = visibleMembers.find(
     (member) => String(member.user_id) === String(profile?.id),
   );
@@ -309,7 +449,9 @@ export default function CommunityWorkspacePage({ profile }) {
       return undefined;
     }
     if (
-      (communityToolsTab === "queue" || communityToolsTab === "logs") &&
+      (communityToolsTab === "queue" ||
+        communityToolsTab === "logs" ||
+        communityToolsTab === "analytics") &&
       !canModerateCommunity
     ) {
       return undefined;
@@ -317,12 +459,56 @@ export default function CommunityWorkspacePage({ profile }) {
 
     let active = true;
     const targetServerId = serverId;
+
+    if (communityToolsTab === "analytics") {
+      async function loadAnalyticsData() {
+        setServerAnalyticsLoading(true);
+        setServerAnalyticsError("");
+        try {
+          const response = await api.get(
+            `/servers/${encodeURIComponent(targetServerId)}/analytics/`,
+          );
+          if (active && selectedServerIdRef.current === targetServerId) {
+            setServerAnalytics(response.data);
+            setServerAnalyticsServerId(targetServerId);
+          }
+        } catch (error) {
+          if (active && selectedServerIdRef.current === targetServerId) {
+            if (error.response?.status === 403) {
+              setServerAnalyticsError(
+                "You must be a moderator or community owner to view analytics.",
+              );
+            } else {
+              setServerAnalyticsError(
+                getApiErrorMessage(error, "Could not load server analytics."),
+              );
+            }
+          }
+        } finally {
+          if (active) {
+            setServerAnalyticsLoading(false);
+          }
+        }
+      }
+      loadAnalyticsData();
+      return () => {
+        active = false;
+      };
+    }
+
     const listConfig = {
       members: {
         loading: setMembersLoading,
         clearError: setMembersError,
-        request: () =>
-          api.get(`/servers/${encodeURIComponent(targetServerId)}/members/`),
+        request: () => {
+          const params = {};
+          if (debouncedMemberSearch) params.search = debouncedMemberSearch;
+          if (memberRoleFilter) params.role = memberRoleFilter;
+          return api.get(
+            `/servers/${encodeURIComponent(targetServerId)}/members/`,
+            { params },
+          );
+        },
         validate: (data) => Array.isArray(data) || Array.isArray(data?.results),
         extract: (data) => (Array.isArray(data) ? data : data?.results || []),
         setData: setMembers,
@@ -337,9 +523,15 @@ export default function CommunityWorkspacePage({ profile }) {
         request: () =>
           api.get(
             `/servers/${encodeURIComponent(targetServerId)}/moderation/queue/`,
+            { params: { page: moderationQueuePage } },
           ),
         validate: (data) => Array.isArray(data) || Array.isArray(data?.results),
-        extract: (data) => (Array.isArray(data) ? data : data?.results || []),
+        extract: (data) => {
+          if (data?.count != null) setModerationQueueCount(data.count);
+          setModerationQueueHasNext(Boolean(data?.next));
+          setModerationQueueHasPrev(Boolean(data?.previous));
+          return Array.isArray(data) ? data : data?.results || [];
+        },
         setData: setModerationQueue,
         setServerId: setModerationQueueServerId,
         error: setModerationQueueError,
@@ -352,9 +544,15 @@ export default function CommunityWorkspacePage({ profile }) {
         request: () =>
           api.get(
             `/servers/${encodeURIComponent(targetServerId)}/moderation/logs/`,
+            { params: { page: moderationLogsPage } },
           ),
         validate: (data) => Array.isArray(data) || Array.isArray(data?.results),
-        extract: (data) => (Array.isArray(data) ? data : data?.results || []),
+        extract: (data) => {
+          if (data?.count != null) setModerationLogsCount(data.count);
+          setModerationLogsHasNext(Boolean(data?.next));
+          setModerationLogsHasPrev(Boolean(data?.previous));
+          return Array.isArray(data) ? data : data?.results || [];
+        },
         setData: setModerationLogs,
         setServerId: setModerationLogsServerId,
         error: setModerationLogsError,
@@ -362,6 +560,10 @@ export default function CommunityWorkspacePage({ profile }) {
         fallback: "Could not load moderation logs.",
       },
     }[communityToolsTab];
+
+    if (!listConfig) {
+      return undefined;
+    }
 
     listConfig.loading(true);
     listConfig.clearError("");
@@ -405,6 +607,10 @@ export default function CommunityWorkspacePage({ profile }) {
     canModerateCommunity,
     communityToolsOpen,
     communityToolsTab,
+    debouncedMemberSearch,
+    memberRoleFilter,
+    moderationLogsPage,
+    moderationQueuePage,
     serverId,
   ]);
 
@@ -513,7 +719,7 @@ export default function CommunityWorkspacePage({ profile }) {
   );
 
   // A selected channel can load messages only after it has been confirmed to
-  // belong to the route community's current channel list.
+  // belong to the route community's current channel list. Supports search and author filtering.
   useEffect(() => {
     if (!selectedChannel || !serverId) {
       return undefined;
@@ -535,8 +741,17 @@ export default function CommunityWorkspacePage({ profile }) {
       olderMessagesRequestRef.current = null;
 
       try {
+        const params = {};
+        if (debouncedMessageSearch) {
+          params.search = debouncedMessageSearch;
+        }
+        if (messageAuthorFilter) {
+          params.author = messageAuthorFilter;
+        }
+
         const response = await api.get(
           `/channels/${encodeURIComponent(channelId)}/messages/`,
+          { params },
         );
         if (!Array.isArray(response.data?.results)) {
           throw new Error("The messages response did not contain a results list.");
@@ -582,12 +797,114 @@ export default function CommunityWorkspacePage({ profile }) {
     return () => {
       active = false;
     };
-  }, [handleRequestError, messagesRefreshKey, selectedChannel, serverId]);
+  }, [
+    debouncedMessageSearch,
+    handleRequestError,
+    messageAuthorFilter,
+    messagesRefreshKey,
+    selectedChannel,
+    serverId,
+  ]);
 
-  // Real-time message polling: background polls the active channel every 3.5 seconds
-  // without triggering full page reloads, duplicating messages, or running when the tab is hidden.
+  // Real-time chat: WebSocket communication for the active channel with exponential backoff.
+  // Connects only to the active channel, cleans up on channel switch or unmount, and receives message.new broadcasts.
   useEffect(() => {
-    if (!selectedChannel || !serverId || messagesLoading) {
+    if (!selectedChannel || !serverId) {
+      return undefined;
+    }
+
+    const channelId = String(selectedChannel.id);
+    let isUnmounted = false;
+    let socket = null;
+    let backoffMs = 1000;
+
+    function connectWs() {
+      if (isUnmounted) return;
+      const token = localStorage.getItem("accessToken");
+      if (!token) return;
+
+      const wsUrl = getChannelWebSocketUrl(channelId, token);
+      if (!wsUrl) return;
+
+      try {
+        socket = new WebSocket(wsUrl);
+        wsRef.current = socket;
+
+        socket.onopen = () => {
+          if (isUnmounted) {
+            socket.close();
+            return;
+          }
+          setWsConnected(true);
+          backoffMs = 1000;
+        };
+
+        socket.onmessage = (event) => {
+          if (isUnmounted) return;
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.type === "message.new" && payload.message) {
+              const incoming = payload.message;
+              if (String(incoming.channel) === String(selectedChannelIdRef.current)) {
+                setMessages((current) =>
+                  mergeMessagesChronologically(current, [incoming]),
+                );
+              }
+            }
+          } catch {
+            // tolerate non-json messages
+          }
+        };
+
+        socket.onerror = () => {
+          // let onclose handle reconnection
+        };
+
+        socket.onclose = () => {
+          if (isUnmounted) return;
+          setWsConnected(false);
+          wsRef.current = null;
+          const nextDelay = backoffMs;
+          backoffMs = Math.min(backoffMs * 2, 30000);
+          wsReconnectTimerRef.current = setTimeout(connectWs, nextDelay);
+        };
+      } catch {
+        setWsConnected(false);
+        const nextDelay = backoffMs;
+        backoffMs = Math.min(backoffMs * 2, 30000);
+        wsReconnectTimerRef.current = setTimeout(connectWs, nextDelay);
+      }
+    }
+
+    connectWs();
+
+    return () => {
+      isUnmounted = true;
+      if (wsReconnectTimerRef.current) {
+        clearTimeout(wsReconnectTimerRef.current);
+        wsReconnectTimerRef.current = null;
+      }
+      if (socket) {
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.close();
+      }
+      wsRef.current = null;
+      setWsConnected(false);
+    };
+  }, [selectedChannel, serverId]);
+
+  // Conservative fallback REST polling: ONLY active while WebSocket is DISCONNECTED,
+  // the document is visible, and no search query is active.
+  useEffect(() => {
+    if (
+      wsConnected ||
+      !selectedChannel ||
+      !serverId ||
+      messagesLoading ||
+      debouncedMessageSearch ||
+      messageAuthorFilter
+    ) {
       return undefined;
     }
 
@@ -624,7 +941,7 @@ export default function CommunityWorkspacePage({ profile }) {
           );
         }
       } catch {
-        // Silently tolerate background poll errors to avoid disrupting user experience
+        // tolerate fallback poll error
       } finally {
         pollInFlight = false;
       }
@@ -634,7 +951,7 @@ export default function CommunityWorkspacePage({ profile }) {
       if (document.visibilityState === "visible") {
         pollLatestMessages();
         if (!pollTimer) {
-          pollTimer = setInterval(pollLatestMessages, 3500);
+          pollTimer = setInterval(pollLatestMessages, 6000);
         }
       } else if (pollTimer) {
         clearInterval(pollTimer);
@@ -643,7 +960,7 @@ export default function CommunityWorkspacePage({ profile }) {
     }
 
     if (document.visibilityState === "visible") {
-      pollTimer = setInterval(pollLatestMessages, 3500);
+      pollTimer = setInterval(pollLatestMessages, 6000);
     }
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -654,7 +971,14 @@ export default function CommunityWorkspacePage({ profile }) {
       }
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [messagesLoading, selectedChannel, serverId]);
+  }, [
+    debouncedMessageSearch,
+    messageAuthorFilter,
+    messagesLoading,
+    selectedChannel,
+    serverId,
+    wsConnected,
+  ]);
 
   useEffect(() => {
     if (!createChannelOpen) {
@@ -976,6 +1300,9 @@ export default function CommunityWorkspacePage({ profile }) {
         setModerationActionMessage(
           `Action "${action}" completed successfully on message #${messageId}.`,
         );
+        reloadModerationQueue(moderationQueuePage);
+        reloadModerationLogs(1);
+        reloadAnalytics();
       }
       setActionModalMessage(null);
     } catch (error) {
@@ -987,53 +1314,118 @@ export default function CommunityWorkspacePage({ profile }) {
     }
   }
 
-  const reloadModerationQueue = useCallback(async () => {
-    if (!serverId || moderationQueueLoading) {
-      return;
-    }
-    setModerationQueueLoading(true);
-    setModerationQueueError("");
-    try {
-      const response = await api.get(
-        `/servers/${encodeURIComponent(serverId)}/moderation/queue/`,
-      );
-      const results = Array.isArray(response.data)
-        ? response.data
-        : (response.data?.results || []);
-      setModerationQueue(results);
-      setModerationQueueServerId(serverId);
-    } catch (error) {
-      setModerationQueueError(
-        getApiErrorMessage(error, "Could not reload moderation queue."),
-      );
-    } finally {
-      setModerationQueueLoading(false);
-    }
-  }, [moderationQueueLoading, serverId]);
+  const reloadModerationQueue = useCallback(
+    async (page = moderationQueuePage) => {
+      if (!serverId || moderationQueueLoading) {
+        return;
+      }
+      setModerationQueueLoading(true);
+      setModerationQueueError("");
+      try {
+        const response = await api.get(
+          `/servers/${encodeURIComponent(serverId)}/moderation/queue/`,
+          { params: { page } },
+        );
+        const results = Array.isArray(response.data)
+          ? response.data
+          : response.data?.results || [];
+        setModerationQueue(results);
+        setModerationQueueServerId(serverId);
+        setModerationQueueCount(response.data?.count || results.length);
+        setModerationQueueHasNext(Boolean(response.data?.next));
+        setModerationQueueHasPrev(Boolean(response.data?.previous));
+        setModerationQueuePage(page);
+      } catch (error) {
+        setModerationQueueError(
+          getApiErrorMessage(error, "Could not reload moderation queue."),
+        );
+      } finally {
+        setModerationQueueLoading(false);
+      }
+    },
+    [moderationQueueLoading, moderationQueuePage, serverId],
+  );
 
-  const reloadModerationLogs = useCallback(async () => {
-    if (!serverId || moderationLogsLoading) {
-      return;
-    }
-    setModerationLogsLoading(true);
-    setModerationLogsError("");
+  const reloadModerationLogs = useCallback(
+    async (page = moderationLogsPage) => {
+      if (!serverId || moderationLogsLoading) {
+        return;
+      }
+      setModerationLogsLoading(true);
+      setModerationLogsError("");
+      try {
+        const response = await api.get(
+          `/servers/${encodeURIComponent(serverId)}/moderation/logs/`,
+          { params: { page } },
+        );
+        const results = Array.isArray(response.data)
+          ? response.data
+          : response.data?.results || [];
+        setModerationLogs(results);
+        setModerationLogsServerId(serverId);
+        setModerationLogsCount(response.data?.count || results.length);
+        setModerationLogsHasNext(Boolean(response.data?.next));
+        setModerationLogsHasPrev(Boolean(response.data?.previous));
+        setModerationLogsPage(page);
+      } catch (error) {
+        setModerationLogsError(
+          getApiErrorMessage(error, "Could not reload moderation logs."),
+        );
+      } finally {
+        setModerationLogsLoading(false);
+      }
+    },
+    [moderationLogsLoading, moderationLogsPage, serverId],
+  );
+
+  const reloadMembers = useCallback(async () => {
+    if (!serverId || membersLoading) return;
+    setMembersLoading(true);
+    setMembersError("");
     try {
+      const params = {};
+      if (debouncedMemberSearch) params.search = debouncedMemberSearch;
+      if (memberRoleFilter) params.role = memberRoleFilter;
       const response = await api.get(
-        `/servers/${encodeURIComponent(serverId)}/moderation/logs/`,
+        `/servers/${encodeURIComponent(serverId)}/members/`,
+        { params },
       );
       const results = Array.isArray(response.data)
         ? response.data
-        : (response.data?.results || []);
-      setModerationLogs(results);
-      setModerationLogsServerId(serverId);
+        : response.data?.results || [];
+      setMembers(results);
+      setMembersServerId(serverId);
     } catch (error) {
-      setModerationLogsError(
-        getApiErrorMessage(error, "Could not reload moderation logs."),
-      );
+      setMembersError(getApiErrorMessage(error, "Could not reload members."));
     } finally {
-      setModerationLogsLoading(false);
+      setMembersLoading(false);
     }
-  }, [moderationLogsLoading, serverId]);
+  }, [debouncedMemberSearch, memberRoleFilter, membersLoading, serverId]);
+
+  const reloadAnalytics = useCallback(async () => {
+    if (!serverId || serverAnalyticsLoading) return;
+    setServerAnalyticsLoading(true);
+    setServerAnalyticsError("");
+    try {
+      const response = await api.get(
+        `/servers/${encodeURIComponent(serverId)}/analytics/`,
+      );
+      setServerAnalytics(response.data);
+      setServerAnalyticsServerId(serverId);
+    } catch (error) {
+      if (error.response?.status === 403) {
+        setServerAnalyticsError(
+          "You must be a moderator or community owner to view analytics.",
+        );
+      } else {
+        setServerAnalyticsError(
+          getApiErrorMessage(error, "Could not reload server analytics."),
+        );
+      }
+    } finally {
+      setServerAnalyticsLoading(false);
+    }
+  }, [serverId, serverAnalyticsLoading]);
 
   useEffect(() => {
     if (!actionModalMessage) {
@@ -1132,19 +1524,89 @@ export default function CommunityWorkspacePage({ profile }) {
     }
   }
 
+  function handleFileSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const error = validateAttachmentFile(file);
+    if (error) {
+      setAttachmentError(error);
+      event.target.value = "";
+      return;
+    }
+    setAttachmentError("");
+    setPendingAttachment(file);
+    event.target.value = "";
+  }
+
   async function handleSendMessage(event) {
-    event.preventDefault();
+    if (event) event.preventDefault();
     const content = messageDraft.trim();
-    if (!selectedChannel || !content || sendingMessage) {
+    if (
+      !selectedChannel ||
+      (!content && !pendingAttachment) ||
+      sendingMessage ||
+      uploadingAttachment
+    ) {
       return;
     }
 
     const channelId = String(selectedChannel.id);
     const messageServerId = serverId;
     const requestVersion = messageSelectionVersionRef.current;
-    setSendingMessage(true);
     setMessagesError("");
+    setAttachmentError("");
 
+    // If an attachment is selected, upload via POST /api/channels/{channel_id}/attachments/
+    if (pendingAttachment) {
+      setUploadingAttachment(true);
+      const formData = new FormData();
+      formData.append("file", pendingAttachment);
+      if (content) {
+        formData.append("content", content);
+      }
+
+      try {
+        const response = await api.post(
+          `/channels/${encodeURIComponent(channelId)}/attachments/`,
+          formData,
+        );
+        if (
+          selectedServerIdRef.current === messageServerId &&
+          selectedChannelIdRef.current === channelId &&
+          messageSelectionVersionRef.current === requestVersion
+        ) {
+          setMessages((current) =>
+            mergeMessagesChronologically(current, [response.data]),
+          );
+          setPendingAttachment(null);
+          setMessageDraft("");
+        }
+      } catch (error) {
+        setAttachmentError(
+          getApiErrorMessage(
+            error,
+            "Could not upload attachment. Please check file type and size.",
+          ),
+        );
+      } finally {
+        setUploadingAttachment(false);
+      }
+      return;
+    }
+
+    // Text-only: send through active WebSocket if open
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ content }));
+        setMessageDraft("");
+        return;
+      } catch {
+        // Fallback to REST below
+      }
+    }
+
+    // Fallback REST POST /channels/{channel_id}/messages/
+    setSendingMessage(true);
     try {
       const response = await api.post(
         `/channels/${encodeURIComponent(channelId)}/messages/`,
@@ -1159,10 +1621,7 @@ export default function CommunityWorkspacePage({ profile }) {
           throw new Error("The message response did not match the selected channel.");
         }
         setMessages((currentMessages) =>
-          messagesServerId === messageServerId &&
-          messagesChannelId === channelId
-            ? mergeMessagesChronologically(currentMessages, [response.data])
-            : [response.data],
+          mergeMessagesChronologically(currentMessages, [response.data]),
         );
         setMessagesServerId(messageServerId);
         setMessagesChannelId(channelId);
@@ -1212,9 +1671,13 @@ export default function CommunityWorkspacePage({ profile }) {
     setLoadingOlderMessages(true);
     setOlderMessagesError("");
     try {
+      const params = { cursor };
+      if (debouncedMessageSearch) params.search = debouncedMessageSearch;
+      if (messageAuthorFilter) params.author = messageAuthorFilter;
+
       const response = await api.get(
         `/channels/${encodeURIComponent(channelId)}/messages/`,
-        { params: { cursor } },
+        { params },
       );
       if (!Array.isArray(response.data?.results)) {
         throw new Error("The messages response did not contain a results list.");
@@ -1770,7 +2233,7 @@ export default function CommunityWorkspacePage({ profile }) {
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-neutral-50">
-        <header className="community-workspace__chat-header flex shrink-0 items-center justify-between gap-3 border-b border-neutral-200 bg-white px-4 py-3 sm:px-6">
+        <header className="community-workspace__chat-header flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-neutral-200 bg-white px-4 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
@@ -1799,20 +2262,83 @@ export default function CommunityWorkspacePage({ profile }) {
               <Hash size={18} />
             </span>
             <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold sm:text-base">
-                {selectedChannel?.name || "Choose a channel"}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="truncate text-sm font-semibold sm:text-base">
+                  {selectedChannel?.name || "Choose a channel"}
+                </h2>
+                {selectedChannel && (
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      wsConnected
+                        ? "bg-green-100 text-green-800 border border-green-200"
+                        : "bg-neutral-100 text-neutral-600 border border-neutral-200"
+                    }`}
+                    title={wsConnected ? "Connected via WebSocket" : "Reconnecting (using REST fallback)"}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${wsConnected ? "bg-green-600 animate-pulse" : "bg-neutral-400"}`} />
+                    {wsConnected ? "Live" : "Fallback"}
+                  </span>
+                )}
+              </div>
               <p className="truncate text-xs text-neutral-500">
                 {selectedServer?.name || "Community workspace"}
               </p>
             </div>
           </div>
-          <Link
-            to="/dashboard#my-communities"
-            className="shrink-0 rounded-lg border border-neutral-200 px-3 py-2 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 sm:text-sm"
-          >
-            Back to dashboard
-          </Link>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedChannel && (
+              <div className="flex items-center gap-1.5">
+                <div className="relative">
+                  <Search
+                    size={13}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400"
+                  />
+                  <input
+                    type="search"
+                    value={messageSearchQuery}
+                    onChange={(e) => setMessageSearchQuery(e.target.value)}
+                    placeholder={`Search #${selectedChannel.name}...`}
+                    className="h-8 w-32 rounded-lg border border-neutral-300 bg-neutral-50 pl-7 pr-6 text-xs text-neutral-900 placeholder:text-neutral-400 transition-all focus:w-48 focus:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 sm:w-44 sm:focus:w-60"
+                  />
+                  {messageSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setMessageSearchQuery("")}
+                      aria-label="Clear search"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {visibleMembers.length > 0 && (
+                  <select
+                    value={messageAuthorFilter}
+                    onChange={(e) => setMessageAuthorFilter(e.target.value)}
+                    aria-label="Filter messages by author"
+                    title="Filter by author"
+                    className="h-8 rounded-lg border border-neutral-300 bg-neutral-50 px-2 text-xs text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                  >
+                    <option value="">All authors</option>
+                    {visibleMembers.map((member) => (
+                      <option key={member.user_id} value={member.user_id}>
+                        {member.display_name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
+
+            <Link
+              to="/dashboard#my-communities"
+              className="shrink-0 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 sm:text-sm"
+            >
+              Dashboard
+            </Link>
+          </div>
         </header>
 
         {serversLoading ? (
@@ -2076,13 +2602,21 @@ export default function CommunityWorkspacePage({ profile }) {
                       key={message.id}
                       className="community-workspace__message mx-auto flex w-full max-w-4xl items-start gap-3"
                     >
-                      <span className="community-workspace__avatar flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-xs font-semibold text-neutral-700">
-                        {message.author?.display_name?.[0]?.toUpperCase() || "?"}
-                      </span>
+                      {message.author?.avatar ? (
+                        <img
+                          src={message.author.avatar}
+                          alt=""
+                          className="h-9 w-9 shrink-0 rounded-full border border-neutral-200 object-cover"
+                        />
+                      ) : (
+                        <span className="community-workspace__avatar flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-xs font-semibold text-neutral-700">
+                          {message.author?.display_name?.[0]?.toUpperCase() || "?"}
+                        </span>
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="community-workspace__message-meta flex flex-wrap items-baseline gap-x-2">
-                            <span className="community-workspace__author text-sm font-semibold">
+                          <div className="community-workspace__message-meta flex flex-wrap items-center gap-x-2">
+                            <span className="community-workspace__author text-sm font-semibold text-neutral-900">
                               {message.author?.display_name || "Community member"}
                             </span>
                             {message.created_at && (
@@ -2093,6 +2627,29 @@ export default function CommunityWorkspacePage({ profile }) {
                                 {new Date(message.created_at).toLocaleString()}
                               </time>
                             )}
+                            {message.edited_at && (
+                              <span
+                                className="text-[11px] text-neutral-400"
+                                title={`Edited ${new Date(message.edited_at).toLocaleString()}`}
+                              >
+                                (edited)
+                              </span>
+                            )}
+                            {message.moderation_status &&
+                              message.moderation_status !== "clean" &&
+                              message.moderation_status !== "unchecked" && (
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                                    message.moderation_status === "flagged"
+                                      ? "border border-red-200 bg-red-100 text-red-800"
+                                      : "border border-amber-200 bg-amber-100 text-amber-800"
+                                  }`}
+                                >
+                                  {message.moderation_status === "flagged"
+                                    ? "Flagged"
+                                    : "Reviewed"}
+                                </span>
+                              )}
                           </div>
                           {canModifyMessage(message, profile) && (
                             <div className="flex shrink-0 items-center gap-1">
@@ -2202,9 +2759,135 @@ export default function CommunityWorkspacePage({ profile }) {
                             </div>
                           </form>
                         ) : (
-                          <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-neutral-700">
-                            {message.content}
-                          </p>
+                          <>
+                            {message.content && (
+                              <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-neutral-800">
+                                {message.content}
+                              </p>
+                            )}
+                            {Array.isArray(message.attachments) &&
+                              message.attachments.length > 0 && (
+                                <div className="mt-2.5 flex flex-wrap gap-2.5">
+                                  {message.attachments.map((att) => {
+                                    const isImg =
+                                      att.content_type?.startsWith("image/") ||
+                                      /\.(jpg|jpeg|png|webp|gif)$/i.test(
+                                        att.file || att.original_name,
+                                      );
+                                    const isVideo =
+                                      att.content_type?.startsWith("video/") ||
+                                      /\.(mp4|webm|mov)$/i.test(
+                                        att.file || att.original_name,
+                                      );
+                                    const isPdf =
+                                      att.content_type === "application/pdf" ||
+                                      /\.pdf$/i.test(
+                                        att.file || att.original_name,
+                                      );
+
+                                    if (isImg) {
+                                      return (
+                                        <a
+                                          key={att.id || att.file}
+                                          href={att.file}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="group block overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100 transition hover:opacity-95"
+                                        >
+                                          <img
+                                            src={att.file}
+                                            alt={att.original_name || "Attachment"}
+                                            loading="lazy"
+                                            className="max-h-64 max-w-sm rounded-lg object-contain"
+                                          />
+                                        </a>
+                                      );
+                                    }
+
+                                    if (isVideo) {
+                                      return (
+                                        <div
+                                          key={att.id || att.file}
+                                          className="overflow-hidden rounded-lg border border-neutral-200 bg-black"
+                                        >
+                                          <video
+                                            controls
+                                            preload="metadata"
+                                            className="max-h-72 max-w-md rounded-lg"
+                                            src={att.file}
+                                          />
+                                        </div>
+                                      );
+                                    }
+
+                                    if (isPdf) {
+                                      return (
+                                        <div
+                                          key={att.id || att.file}
+                                          className="flex max-w-sm items-center gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 shadow-xs"
+                                        >
+                                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-100 text-red-700">
+                                            <FileText size={20} />
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <p
+                                              className="truncate text-xs font-semibold text-neutral-900"
+                                              title={att.original_name}
+                                            >
+                                              {att.original_name || "Document.pdf"}
+                                            </p>
+                                            <p className="text-[11px] text-neutral-500">
+                                              {formatBytes(att.size)} · PDF
+                                            </p>
+                                          </div>
+                                          <a
+                                            href={att.file}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                                          >
+                                            <ExternalLink size={12} />
+                                            Open
+                                          </a>
+                                        </div>
+                                      );
+                                    }
+
+                                    return (
+                                      <div
+                                        key={att.id || att.file}
+                                        className="flex max-w-sm items-center gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 shadow-xs"
+                                      >
+                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-200 text-neutral-700">
+                                          <Download size={18} />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <p
+                                            className="truncate text-xs font-semibold text-neutral-900"
+                                            title={att.original_name}
+                                          >
+                                            {att.original_name || "File"}
+                                          </p>
+                                          <p className="text-[11px] text-neutral-500">
+                                            {formatBytes(att.size)}
+                                          </p>
+                                        </div>
+                                        <a
+                                          href={att.file}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          download={att.original_name}
+                                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                                        >
+                                          <Download size={12} />
+                                          Download
+                                        </a>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                          </>
                         )}
                       </div>
                     </article>
@@ -2229,46 +2912,93 @@ export default function CommunityWorkspacePage({ profile }) {
 
               <form
                 onSubmit={handleSendMessage}
-                className="community-workspace__composer flex shrink-0 gap-2 border-t border-neutral-200 bg-white p-3 sm:p-4"
+                className="community-workspace__composer flex shrink-0 flex-col border-t border-neutral-200 bg-white p-3 sm:p-4"
               >
-                <label className="sr-only" htmlFor="workspace-message-draft">
-                  Write a message
-                </label>
-                <span className="sr-only">
-                  Press Enter to send. Press Shift+Enter for a new line.
-                </span>
-                <textarea
-                  ref={messageComposerRef}
-                  id="workspace-message-draft"
-                  maxLength={2000}
-                  rows={1}
-                  value={messageDraft}
-                  onChange={(event) => setMessageDraft(event.target.value)}
-                  onKeyDown={handleMessageComposerKeyDown}
-                  disabled={!selectedChannel || sendingMessage}
-                  placeholder={
-                    selectedChannel
-                      ? `Message #${selectedChannel.name}`
-                      : "Choose a channel to message"
-                  }
-                  className="community-workspace__composer-input mx-auto min-w-0 max-w-4xl flex-1 rounded-xl border border-neutral-200 px-4 py-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-neutral-500 focus:ring-2 focus:ring-neutral-100 disabled:bg-neutral-50"
-                />
-                <button
-                  type="submit"
-                  disabled={
-                    !selectedChannel ||
-                    !messageDraft.trim() ||
-                    sendingMessage
-                  }
-                  aria-label="Send message"
-                  className="community-workspace__send-button flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-neutral-300"
-                >
-                  {sendingMessage ? (
-                    <LoaderCircle size={17} className="animate-spin" />
-                  ) : (
-                    <Send size={17} />
-                  )}
-                </button>
+                {pendingAttachment && (
+                  <div className="mx-auto mb-2 flex w-full max-w-4xl items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-2 text-xs text-neutral-800">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Paperclip size={15} className="shrink-0 text-neutral-600" />
+                      <span className="truncate font-medium">{pendingAttachment.name}</span>
+                      <span className="text-neutral-500">
+                        ({formatBytes(pendingAttachment.size)})
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPendingAttachment(null)}
+                      disabled={uploadingAttachment}
+                      aria-label="Remove attachment"
+                      className="rounded p-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-800"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
+                {attachmentError && (
+                  <p role="alert" className="mx-auto mb-2 w-full max-w-4xl text-xs text-red-700">
+                    {attachmentError}
+                  </p>
+                )}
+
+                <div className="mx-auto flex w-full max-w-4xl items-end gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept=".jpg,.jpeg,.png,.webp,.pdf,.mp4,image/jpeg,image/png,image/webp,application/pdf,video/mp4"
+                    onChange={handleFileSelected}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={!selectedChannel || sendingMessage || uploadingAttachment}
+                    aria-label="Attach file (JPG, PNG, WEBP, PDF, MP4 up to 10MB)"
+                    title="Attach file (JPG, PNG, WEBP, PDF, MP4 up to 10MB)"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-neutral-200 text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:opacity-40"
+                  >
+                    <Paperclip size={17} />
+                  </button>
+
+                  <label className="sr-only" htmlFor="workspace-message-draft">
+                    Write a message
+                  </label>
+                  <span className="sr-only">
+                    Press Enter to send. Press Shift+Enter for a new line.
+                  </span>
+                  <textarea
+                    ref={messageComposerRef}
+                    id="workspace-message-draft"
+                    maxLength={2000}
+                    rows={1}
+                    value={messageDraft}
+                    onChange={(event) => setMessageDraft(event.target.value)}
+                    onKeyDown={handleMessageComposerKeyDown}
+                    disabled={!selectedChannel || sendingMessage || uploadingAttachment}
+                    placeholder={
+                      selectedChannel
+                        ? `Message #${selectedChannel.name}`
+                        : "Choose a channel to message"
+                    }
+                    className="community-workspace__composer-input min-w-0 flex-1 rounded-xl border border-neutral-200 px-4 py-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-neutral-500 focus:ring-2 focus:ring-neutral-100 disabled:bg-neutral-50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={
+                      !selectedChannel ||
+                      (!messageDraft.trim() && !pendingAttachment) ||
+                      sendingMessage ||
+                      uploadingAttachment
+                    }
+                    aria-label="Send message"
+                    className="community-workspace__send-button flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white transition hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-neutral-300"
+                  >
+                    {sendingMessage || uploadingAttachment ? (
+                      <LoaderCircle size={17} className="animate-spin" />
+                    ) : (
+                      <Send size={17} />
+                    )}
+                  </button>
+                </div>
               </form>
             </section>
           </>
@@ -2645,6 +3375,19 @@ export default function CommunityWorkspacePage({ profile }) {
                     <ClipboardList size={16} />
                     Logs
                   </button>
+                  <button
+                    type="button"
+                    aria-pressed={communityToolsTab === "analytics"}
+                    onClick={() => setCommunityToolsTab("analytics")}
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                      communityToolsTab === "analytics"
+                        ? "bg-neutral-950 text-white"
+                        : "text-neutral-700 hover:bg-neutral-100"
+                    }`}
+                  >
+                    <BarChart3 size={16} />
+                    Analytics
+                  </button>
                 </>
               )}
             </nav>
@@ -2727,6 +3470,53 @@ export default function CommunityWorkspacePage({ profile }) {
               )}
               {communityToolsTab === "members" && (
                 <section aria-label="Community members">
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
+                    <div className="relative min-w-[200px] flex-1">
+                      <Search
+                        size={14}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"
+                      />
+                      <input
+                        type="search"
+                        value={memberSearchQuery}
+                        onChange={(e) => setMemberSearchQuery(e.target.value)}
+                        placeholder="Search members by name..."
+                        className="w-full rounded-lg border border-neutral-300 bg-white py-1.5 pl-8 pr-7 text-xs text-neutral-800 placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                      />
+                      {memberSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setMemberSearchQuery("")}
+                          aria-label="Clear member search"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                    <select
+                      value={memberRoleFilter}
+                      onChange={(e) => setMemberRoleFilter(e.target.value)}
+                      aria-label="Filter members by role"
+                      className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+                    >
+                      <option value="">All roles</option>
+                      <option value="owner">Owner</option>
+                      <option value="admin">Admin</option>
+                      <option value="moderator">Moderator</option>
+                      <option value="member">Member</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={reloadMembers}
+                      disabled={membersLoading}
+                      aria-label="Refresh members"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:opacity-50"
+                    >
+                      <RotateCw size={12} className={membersLoading ? "animate-spin" : ""} />
+                    </button>
+                  </div>
+
                   {membersSuccess && (
                     <p role="status" className="mb-3 rounded-lg border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm text-neutral-800">
                       {membersSuccess}
@@ -2744,7 +3534,9 @@ export default function CommunityWorkspacePage({ profile }) {
                     </p>
                   ) : membersError ? null : visibleMembers.length === 0 ? (
                     <p className="py-8 text-center text-sm text-neutral-600">
-                      No community members were returned.
+                      {memberSearchQuery || memberRoleFilter
+                        ? "No community members found matching your search or filter."
+                        : "No community members were returned."}
                     </p>
                   ) : (
                     <ul className="divide-y divide-neutral-200">
@@ -2946,6 +3738,32 @@ export default function CommunityWorkspacePage({ profile }) {
                       ))}
                     </ul>
                   )}
+
+                  {!moderationQueueLoading && visibleModerationQueue.length > 0 && (
+                    <div className="mt-4 flex items-center justify-between border-t border-neutral-200 pt-3 text-xs text-neutral-600">
+                      <span>
+                        Page {moderationQueuePage} (Total: {moderationQueueCount})
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={!moderationQueueHasPrev || moderationQueueLoading}
+                          onClick={() => reloadModerationQueue(moderationQueuePage - 1)}
+                          className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium hover:bg-neutral-50 disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!moderationQueueHasNext || moderationQueueLoading}
+                          onClick={() => reloadModerationQueue(moderationQueuePage + 1)}
+                          className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium hover:bg-neutral-50 disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </section>
               )}
 
@@ -3046,6 +3864,184 @@ export default function CommunityWorkspacePage({ profile }) {
                       })}
                     </ul>
                   )}
+
+                  {!moderationLogsLoading && visibleModerationLogs.length > 0 && (
+                    <div className="mt-4 flex items-center justify-between border-t border-neutral-200 pt-3 text-xs text-neutral-600">
+                      <span>
+                        Page {moderationLogsPage} (Total: {moderationLogsCount})
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={!moderationLogsHasPrev || moderationLogsLoading}
+                          onClick={() => reloadModerationLogs(moderationLogsPage - 1)}
+                          className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium hover:bg-neutral-50 disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!moderationLogsHasNext || moderationLogsLoading}
+                          onClick={() => reloadModerationLogs(moderationLogsPage + 1)}
+                          className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium hover:bg-neutral-50 disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {communityToolsTab === "analytics" && canModerateCommunity && (
+                <section aria-label="Community analytics">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-neutral-900">
+                        Community Analytics
+                      </h3>
+                      <p className="mt-1 text-xs text-neutral-600">
+                        Live metrics on membership, channel activity, and moderation.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={reloadAnalytics}
+                      disabled={serverAnalyticsLoading}
+                      aria-label="Refresh analytics"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:opacity-50"
+                    >
+                      <RotateCw
+                        size={13}
+                        className={serverAnalyticsLoading ? "animate-spin" : ""}
+                      />
+                      Refresh
+                    </button>
+                  </div>
+
+                  {serverAnalyticsError && (
+                    <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
+                      <p role="alert" className="text-sm text-red-800">
+                        {serverAnalyticsError}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={reloadAnalytics}
+                        className="mt-2 text-xs font-semibold text-red-900 underline underline-offset-2"
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  )}
+
+                  {serverAnalyticsLoading ? (
+                    <p
+                      role="status"
+                      className="flex items-center gap-2 py-8 text-sm text-neutral-600"
+                    >
+                      <LoaderCircle size={16} className="animate-spin" />
+                      Loading community analytics...
+                    </p>
+                  ) : visibleServerAnalytics ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                        <div className="flex items-center justify-between text-neutral-500">
+                          <span className="text-xs font-semibold uppercase tracking-wider">
+                            Total Members
+                          </span>
+                          <UsersRound size={18} />
+                        </div>
+                        <p className="mt-2 text-2xl font-bold text-neutral-900">
+                          {visibleServerAnalytics.member_count ?? 0}
+                        </p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Community members enrolled
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                        <div className="flex items-center justify-between text-neutral-500">
+                          <span className="text-xs font-semibold uppercase tracking-wider">
+                            Channels
+                          </span>
+                          <Hash size={18} />
+                        </div>
+                        <p className="mt-2 text-2xl font-bold text-neutral-900">
+                          {visibleServerAnalytics.channel_count ?? 0}
+                        </p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          {visibleServerAnalytics.active_channels ?? 0} active channels
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                        <div className="flex items-center justify-between text-neutral-500">
+                          <span className="text-xs font-semibold uppercase tracking-wider">
+                            Total Messages
+                          </span>
+                          <MessageCircle size={18} />
+                        </div>
+                        <p className="mt-2 text-2xl font-bold text-neutral-900">
+                          {visibleServerAnalytics.total_messages ?? 0}
+                        </p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          All-time messages sent
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                        <div className="flex items-center justify-between text-neutral-500">
+                          <span className="text-xs font-semibold uppercase tracking-wider">
+                            Recent Messages
+                          </span>
+                          <Activity size={18} />
+                        </div>
+                        <p className="mt-2 text-2xl font-bold text-neutral-900">
+                          {visibleServerAnalytics.messages_last_7_days ?? 0}
+                        </p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Sent in last 7 days
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                        <div className="flex items-center justify-between text-neutral-500">
+                          <span className="text-xs font-semibold uppercase tracking-wider">
+                            Pending Flags
+                          </span>
+                          <ShieldAlert
+                            size={18}
+                            className={
+                              (visibleServerAnalytics.flagged_pending ?? 0) > 0
+                                ? "text-red-500"
+                                : ""
+                            }
+                          />
+                        </div>
+                        <p className="mt-2 text-2xl font-bold text-neutral-900">
+                          {visibleServerAnalytics.flagged_pending ?? 0}
+                        </p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Flagged messages awaiting review
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                        <div className="flex items-center justify-between text-neutral-500">
+                          <span className="text-xs font-semibold uppercase tracking-wider">
+                            Actions Taken
+                          </span>
+                          <ShieldCheck size={18} />
+                        </div>
+                        <p className="mt-2 text-2xl font-bold text-neutral-900">
+                          {visibleServerAnalytics.moderation_actions ?? 0}
+                        </p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Total actions in audit log
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
                 </section>
               )}
             </div>
