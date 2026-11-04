@@ -42,6 +42,7 @@ urlpatterns = [
     path('api/', include('communities.urls')),
     path('api/', include('chat.urls')),
     path('api/', include('moderation.urls')),
+    path('api/', include('direct.urls')),
 ]
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL , document_root = settings.MEDIA_ROOT) 

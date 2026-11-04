@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'communities',
     'chat',
     'moderation',
+    'direct',
     'channels',
 ]
 
