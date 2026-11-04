@@ -13,16 +13,23 @@ class UserBriefSerializer(serializers.ModelSerializer):
 
 class ConversationSerializer(serializers.ModelSerializer):
     members = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
     user_ids = serializers.ListField(child=serializers.IntegerField(), write_only=True)
 
     class Meta:
         model = Conversation
-        fields = ["id", "is_group", "name", "created_by", "created_at", "members", "user_ids"]
+        fields = ["id", "is_group", "name", "created_by", "created_at", "members", "last_message", "user_ids"]
         read_only_fields = ["is_group", "created_by", "created_at"]
 
     def get_members(self, obj):
         users = [member.user for member in obj.members.all()]
         return UserBriefSerializer(users, many=True, context=self.context).data
+
+    def get_last_message(self, obj):
+        message = obj.messages.order_by("-created_at").first()
+        if not message:
+            return None
+        return DirectMessageSerializer(message, context=self.context).data
 
     def validate_user_ids(self, value):
         ids = set(value)
@@ -35,7 +42,6 @@ class ConversationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("One or more users do not exist.")
         return list(ids)
 
-
 class DirectMessageSerializer(serializers.ModelSerializer):
     author = UserBriefSerializer(read_only=True)
 
@@ -43,3 +49,12 @@ class DirectMessageSerializer(serializers.ModelSerializer):
         model = DirectMessage
         fields = ["id", "conversation", "author", "content", "created_at", "edited_at"]
         read_only_fields = ["conversation", "created_at", "edited_at"]
+
+class AddMembersSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
+
+    def validate_user_ids(self, value):
+        ids = set(value)
+        if User.objects.filter(id__in=ids, is_active=True).count() != len(ids):
+            raise serializers.ValidationError("One or more users do not exist.")
+        return list(ids)
