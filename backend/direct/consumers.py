@@ -37,6 +37,24 @@ class DirectConsumer(AsyncJsonWebsocketConsumer):
 
     async def direct_message(self, event):
         await self.send_json({"type": "message.new", "message": event["message"]})
+        
+    async def direct_updated(self, event):
+        await self.send_json({"type": "message.updated", "message": event["message"]})
+
+    async def direct_deleted(self, event):
+        await self.send_json({
+            "type": "message.deleted",
+            "id": event["id"],
+            "conversation": event["conversation"],
+        })
+
+    async def direct_member_added(self, event):
+        await self.send_json({"type": "member.added", "user_ids": event["user_ids"]})
+
+    async def direct_member_removed(self, event):
+        await self.send_json({"type": "member.removed", "user_id": event["user_id"]})
+        if event["user_id"] == self.user.id:
+            await self.close(code=4004)
 
     @database_sync_to_async
     def is_member(self):

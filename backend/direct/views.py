@@ -15,6 +15,7 @@ from django.db.models import F, Max
 from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.views import APIView
+from .events import broadcast
 
 
 class MessagePagination(CursorPagination):
@@ -88,9 +89,10 @@ class DirectMessageListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         conversation = self.get_conversation()
         message = serializer.save(conversation=conversation, author=self.request.user)
-        async_to_sync(get_channel_layer().group_send)(
-            f"direct_{conversation.id}",
-            {"type": "direct.message", "message": dict(DirectMessageSerializer(message).data)},
+        broadcast(
+            conversation.id,
+            "direct.message",
+            message=dict(DirectMessageSerializer(message).data),
         )
 
 
@@ -105,12 +107,20 @@ class DirectMessageDetailView(generics.RetrieveUpdateDestroyAPIView):
     def perform_update(self, serializer):
         if serializer.instance.author != self.request.user:
             raise PermissionDenied("You can only edit your own messages.")
-        serializer.save(edited_at=timezone.now())
+        message = serializer.save(edited_at=timezone.now())
+        broadcast(
+            message.conversation_id,
+            "direct.updated",
+            message=dict(DirectMessageSerializer(message).data),
+        )
 
     def perform_destroy(self, instance):
         if instance.author != self.request.user:
             raise PermissionDenied("You can only delete your own messages.")
+        conversation_id, message_id = instance.conversation_id, instance.id
         instance.delete()
+        broadcast(conversation_id, "direct.deleted", id=message_id, conversation=conversation_id)
+
 class ConversationMemberAddView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -134,6 +144,8 @@ class ConversationMemberAddView(APIView):
             [ConversationMember(conversation=conversation, user_id=uid) for uid in new_ids],
             ignore_conflicts=True,
         )
+        if new_ids:
+            broadcast(conversation.id, "direct.member_added", user_ids=new_ids)
         conversation = Conversation.objects.prefetch_related("members__user").get(id=conversation.id)
         return Response(ConversationSerializer(conversation, context={"request": request}).data)
 
@@ -153,6 +165,7 @@ class ConversationMemberRemoveView(APIView):
 
         member = get_object_or_404(ConversationMember, conversation=conversation, user_id=user_id)
         member.delete()
+        broadcast(conversation.id, "direct.member_removed", user_id=user_id)
         if not conversation.members.exists():
             conversation.delete()
         return Response(status=204)
