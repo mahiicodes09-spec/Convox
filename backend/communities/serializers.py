@@ -58,5 +58,5 @@ class MemberSerializer(serializers.ModelSerializer):
 
     def validate_role(self, value):
         if value == "owner":
-            raise serializers.ValidationError("Kisi ko owner nahi bana sakte.")
+            raise serializers.ValidationError("cannot create owner to anyone")
         return value

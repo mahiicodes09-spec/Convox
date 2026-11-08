@@ -49,7 +49,7 @@ class MessageListCreateView(generics.ListCreateAPIView):
         channel = self.get_channel()
         restriction = get_restriction(self.request.user, channel.server)
         if restriction:
-            raise PermissionDenied(f"Aap abhi {restriction} hain, message nahi bhej sakte.")
+            raise PermissionDenied(f"you are {restriction}, cannot send messages")
         content = serializer.validated_data["content"]
         message = serializer.save(channel=channel, author=self.request.user, **moderate(content))
         try:
@@ -71,7 +71,7 @@ class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def perform_update(self, serializer):
         if serializer.instance.author != self.request.user:
-            raise PermissionDenied("Sirf apna message edit kar sakte ho.")
+            raise PermissionDenied("you can edit only your message")
         content = serializer.validated_data.get("content", serializer.instance.content)
         serializer.save(edited_at=timezone.now(), **moderate(content))
 
@@ -79,7 +79,7 @@ class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):
         if instance.author != self.request.user:
             member = ServerMember.objects.get(server=instance.channel.server, user=self.request.user)
             if member.role not in ["owner", "admin", "moderator"]:
-                raise PermissionDenied("Dusre ka message sirf owner, admin ya moderator delete kar sakte hain.")
+                raise PermissionDenied("messages from other person can only be deleted by owner , admin or moderator")
         instance.delete()
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf", "video/mp4"}
 MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -94,15 +94,15 @@ class AttachmentUploadView(APIView):
         channel = get_object_or_404(Channel, id=channel_id, server__members__user=request.user)
         restriction = get_restriction(request.user, channel.server)
         if restriction:
-            raise PermissionDenied(f"Aap abhi {restriction} hain, file nahi bhej sakte.")
+            raise PermissionDenied(f"you are {restriction}, cannot share files")
 
         upload = request.FILES.get("file")
         if upload is None:
-            raise ValidationError({"file": "File zaroori hai."})
+            raise ValidationError({"file": "File should be there"})
         if upload.size > MAX_FILE_SIZE:
-            raise ValidationError({"file": "File 10 MB se badi nahi ho sakti."})
+            raise ValidationError({"file": "File size should be less than 10mb"})
         if upload.content_type not in ALLOWED_TYPES:
-            raise ValidationError({"file": "Sirf jpg, png, webp, pdf ya mp4 allowed hai."})
+            raise ValidationError({"file": "only jpg, png, webp, pdf ya mp4 is allowed"})
 
         caption = str(request.data.get("content", "")).strip()[:2000]
         extra = moderate(caption) if caption else {}

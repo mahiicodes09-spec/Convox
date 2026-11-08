@@ -16,16 +16,16 @@ class RegisterSerializer(serializers.Serializer):
     def validate_email(self, value):
         value = value.lower()
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("Is email se account pehle se hai.")
+            raise serializers.ValidationError("Account from this email already exist")
         return value
 
     def validate_password(self, value):
-        django_validate_password(value)       # Django ke password rules
+        django_validate_password(value)
         return value
 
     def validate(self, attrs):
         if attrs["password"] != attrs["password2"]:
-            raise serializers.ValidationError({"password2": "Passwords match nahi karte."})
+            raise serializers.ValidationError({"password2": "password do not match"})
         return attrs
     
 class UserSerializer(serializers.ModelSerializer):
@@ -55,7 +55,7 @@ class RedisTokenRefreshSerializer(TokenRefreshSerializer):
     def validate(self, attrs):
         refresh = RefreshToken(attrs["refresh"])
         if is_blacklisted(refresh["jti"]):
-            raise InvalidToken("Token logout ho chuka hai. Dobara login karo.")
+            raise InvalidToken("token has been logged out, login again")
         return super().validate(attrs)
 
 class OTPSerializer(serializers.Serializer):
@@ -75,3 +75,13 @@ class ResetPasswordSerializer(serializers.Serializer):
         if attrs["new_password"] != attrs["new_password2"]:
             raise serializers.ValidationError({"new_password2": "Passwords do not match."})
         return attrs
+    def validate_email(self, value):
+        value = value.lower()
+        if not User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("This email is not registered.")
+        return value
+
+    def validate_reset_token(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Reset token is required.")
+        return value
