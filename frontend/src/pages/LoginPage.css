@@ -1,0 +1,198 @@
+.auth-page {
+  min-height: 100vh;
+  min-height: 100svh;
+  overflow-x: clip;
+}
+
+.login-scene {
+  z-index: 0;
+  overflow: hidden;
+}
+
+.login-wave {
+  position: absolute;
+  left: 0;
+  width: 200%;
+  animation: yappy-wave-drift 82s linear infinite;
+  will-change: transform;
+}
+
+.login-wave-back {
+  z-index: 0;
+  bottom: 0;
+  height: max(47vh, 300px);
+  animation-duration: 96s;
+}
+
+.login-wave-middle {
+  z-index: 1;
+  bottom: 0;
+  height: max(37vh, 240px);
+  animation-duration: 78s;
+}
+
+.login-wave-front {
+  z-index: 3;
+  bottom: 0;
+  height: max(26vh, 175px);
+  animation-duration: 64s;
+}
+
+.login-character {
+  position: absolute;
+  z-index: 2;
+  right: clamp(7vw, 11vw, 160px);
+  bottom: 9vh;
+  width: clamp(128px, 15vw, 190px);
+  aspect-ratio: 91 / 112;
+  animation: yappy-character-float 6.5s ease-in-out infinite;
+  transform-origin: center bottom;
+  will-change: transform;
+  filter: drop-shadow(0 0 1px rgb(255 255 255 / 75%));
+}
+
+.signup-character {
+  position: absolute;
+  z-index: 2;
+  left: clamp(5vw, 9vw, 130px);
+  bottom: 8vh;
+  width: clamp(130px, 16vw, 190px);
+  height: auto;
+  animation: yappy-character-float 6.5s ease-in-out infinite;
+  transform-origin: center bottom;
+  will-change: transform;
+  filter: drop-shadow(0 0 1px rgb(255 255 255 / 75%));
+}
+
+.login-character img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.auth-card {
+  z-index: 10;
+  animation: auth-card-float 7s ease-in-out infinite;
+  will-change: transform;
+}
+
+.yappy-mark {
+  width: 50px;
+  height: 44px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+@keyframes yappy-wave-drift {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes yappy-character-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes auth-card-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.cursor-star-trail {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cursor-star {
+  position: fixed;
+  display: block;
+  pointer-events: none;
+  animation: cursor-star-fade 850ms ease-out forwards;
+}
+
+@keyframes cursor-star-fade {
+  from {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(1) rotate(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(-50%, -60%) scale(0.15) rotate(35deg);
+  }
+}
+
+@media (max-width: 840px) {
+  .login-character {
+    right: 20px;
+    bottom: 7vh;
+    width: 92px;
+  }
+
+  .signup-character {
+    left: 20px;
+    bottom: 7vh;
+    width: 92px;
+  }
+
+  .login-wave-back {
+    height: max(42vh, 270px);
+  }
+
+  .login-wave-middle {
+    height: max(34vh, 220px);
+  }
+
+  .login-wave-front {
+    height: max(24vh, 160px);
+  }
+}
+
+@media (max-width: 720px) {
+  .login-character,
+  .signup-character {
+    display: none;
+  }
+
+  .login-wave-back {
+    height: max(38vh, 230px);
+  }
+
+  .login-wave-middle {
+    height: max(31vh, 190px);
+  }
+
+  .login-wave-front {
+    height: max(22vh, 145px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-wave,
+  .login-character,
+  .signup-character,
+  .auth-card,
+  .cursor-star {
+    animation: none;
+    will-change: auto;
+  }
+}
