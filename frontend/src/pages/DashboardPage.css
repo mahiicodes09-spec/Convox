@@ -1,0 +1,539 @@
+.dashboard-shell {
+  --dashboard-background: #090909;
+  --dashboard-sidebar-background: #0c0c0c;
+  --dashboard-surface: #131313;
+  --dashboard-surface-raised: #1b1b1b;
+  --dashboard-border: #343434;
+  --dashboard-text: #f5f5f5;
+  --dashboard-muted: #a3a3a3;
+  --dashboard-wave-back: #1c1c1c;
+  --dashboard-wave-middle: #303030;
+  --dashboard-wave-front: #484848;
+  position: relative;
+  isolation: isolate;
+  color: var(--dashboard-text);
+  background:
+    radial-gradient(ellipse at 74% 8%, rgb(255 255 255 / 5%), transparent 34%),
+    var(--dashboard-background) !important;
+}
+
+.dashboard-starfield,
+.dashboard-scene {
+  position: fixed;
+  z-index: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.dashboard-starfield {
+  inset: 0;
+  overflow: hidden;
+  background-image:
+    radial-gradient(circle, rgb(255 255 255 / 67%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(255 255 255 / 48%) 0 1px, transparent 1.7px),
+    radial-gradient(circle, rgb(255 255 255 / 58%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(255 255 255 / 38%) 0 1px, transparent 1.7px),
+    radial-gradient(ellipse at 69% 28%, rgb(255 255 255 / 4%), transparent 32%);
+  background-position:
+    8% 17%,
+    31% 29%,
+    68% 12%,
+    87% 43%,
+    center;
+  background-size:
+    150px 180px,
+    230px 250px,
+    310px 220px,
+    190px 280px,
+    100% 100%;
+  animation: dashboard-star-twinkle 7s ease-in-out infinite alternate;
+}
+
+.dashboard-scene {
+  left: 250px;
+  height: clamp(190px, 32vh, 340px);
+  overflow: hidden;
+}
+
+.dashboard-wave,
+.dashboard-sidebar-wave {
+  position: absolute;
+  left: 0;
+  width: 200%;
+  animation: dashboard-wave-drift 88s linear infinite;
+  will-change: transform;
+}
+
+.dashboard-wave-back,
+.dashboard-sidebar-wave-back {
+  z-index: 1;
+  bottom: 0;
+  height: 100%;
+  animation-duration: 104s;
+}
+
+.dashboard-wave-middle,
+.dashboard-sidebar-wave-middle {
+  z-index: 2;
+  bottom: 0;
+  height: 79%;
+  animation-duration: 86s;
+}
+
+.dashboard-wave-front,
+.dashboard-sidebar-wave-front {
+  z-index: 4;
+  bottom: 0;
+  height: 59%;
+  animation-duration: 72s;
+}
+
+.dashboard-shell > .dashboard-sidebar,
+.dashboard-shell > .dashboard-columns,
+.dashboard-shell > .dashboard-mobile-account {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-sidebar {
+  position: sticky !important;
+  top: 0 !important;
+  align-self: flex-start;
+  isolation: isolate;
+  background-color: transparent !important;
+  border-color: var(--dashboard-border) !important;
+}
+
+.dashboard-sidebar-scene {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 24% 83%, rgb(255 255 255 / 7%), transparent 52%),
+    var(--dashboard-sidebar-background);
+  pointer-events: none;
+}
+
+.dashboard-sidebar-character {
+  position: absolute;
+  z-index: 3;
+  bottom: 68px;
+  left: 7px;
+  width: 82px;
+  height: auto;
+  animation: dashboard-character-float 7s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+
+.dashboard-sidebar-wave {
+  bottom: 0;
+  height: 190px;
+}
+
+.dashboard-sidebar-wave-middle {
+  height: 150px;
+}
+
+.dashboard-sidebar-wave-front {
+  height: 112px;
+}
+
+.dashboard-sidebar-wave-front {
+  z-index: 4;
+}
+
+.dashboard-sidebar > :not(.dashboard-sidebar-scene) {
+  position: relative;
+  z-index: 5;
+}
+
+.dashboard-brand-mark {
+  flex: 0 0 auto;
+  background: #e8e8e8;
+  box-shadow: 0 0 22px rgb(255 255 255 / 10%);
+}
+
+.dashboard-brand-mark img {
+  display: block;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.dashboard-brand-heading {
+  display: block;
+  width: 92px;
+  height: auto;
+}
+
+.dashboard-welcome-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard-welcome-title img {
+  display: block;
+  flex: 0 0 auto;
+  width: clamp(96px, 11vw, 134px);
+  height: auto;
+  animation: dashboard-character-float 6.5s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+
+.dashboard-shell input,
+.dashboard-shell textarea,
+.dashboard-shell select {
+  color: var(--dashboard-text) !important;
+  background-color: #101010 !important;
+  border-color: var(--dashboard-border) !important;
+}
+
+.dashboard-shell input::placeholder,
+.dashboard-shell textarea::placeholder {
+  color: #777 !important;
+}
+
+.dashboard-shell input:focus,
+.dashboard-shell textarea:focus,
+.dashboard-shell select:focus {
+  border-color: #777 !important;
+  --tw-ring-color: rgb(255 255 255 / 16%) !important;
+}
+
+:root[data-theme] .dashboard-shell [class~="bg-white"],
+:root[data-theme] .dashboard-shell [class~="bg-neutral-50"] {
+  background-color: var(--dashboard-surface) !important;
+}
+
+:root[data-theme] .dashboard-shell [class~="bg-neutral-100"],
+:root[data-theme] .dashboard-shell [class~="bg-neutral-200"] {
+  background-color: var(--dashboard-surface-raised) !important;
+}
+
+:root[data-theme] .dashboard-shell [class~="text-neutral-950"],
+:root[data-theme] .dashboard-shell [class~="text-neutral-900"],
+:root[data-theme] .dashboard-shell [class~="text-neutral-800"] {
+  color: var(--dashboard-text) !important;
+}
+
+:root[data-theme] .dashboard-shell [class~="text-neutral-700"],
+:root[data-theme] .dashboard-shell [class~="text-neutral-600"],
+:root[data-theme] .dashboard-shell [class~="text-neutral-500"],
+:root[data-theme] .dashboard-shell [class~="text-neutral-400"] {
+  color: var(--dashboard-muted) !important;
+}
+
+:root[data-theme] .dashboard-shell [class~="border-neutral-100"],
+:root[data-theme] .dashboard-shell [class~="border-neutral-200"],
+:root[data-theme] .dashboard-shell [class~="border-neutral-300"] {
+  border-color: var(--dashboard-border) !important;
+}
+
+:root[data-theme] .dashboard-shell [class~="hover:bg-neutral-50"]:hover,
+:root[data-theme] .dashboard-shell [class~="hover:bg-neutral-100"]:hover,
+:root[data-theme] .dashboard-shell [class~="hover:bg-neutral-200"]:hover {
+  background-color: #252525 !important;
+}
+
+:root[data-theme] .dashboard-shell [class~="hover:text-neutral-950"]:hover {
+  color: #fff !important;
+}
+
+.dashboard-shell :is(button, a, input, textarea, select):focus-visible {
+  outline-color: #a3a3a3;
+}
+
+.dashboard-shell [class~="hover:border-neutral-400"]:hover {
+  border-color: #777 !important;
+}
+
+.dashboard-shell [class~="shadow-sm"],
+.dashboard-shell [class~="shadow-md"],
+.dashboard-shell [class~="shadow-lg"] {
+  --tw-shadow-color: rgb(0 0 0 / 42%);
+}
+
+:root[data-theme="light"] .dashboard-shell {
+  --dashboard-background: #f3f2ef;
+  --dashboard-sidebar-background: #f0efec;
+  --dashboard-surface: #eeedeb;
+  --dashboard-surface-raised: #e6e5e2;
+  --dashboard-border: #d3d2cf;
+  --dashboard-text: #171717;
+  --dashboard-muted: #505050;
+  --dashboard-wave-back: #dfdedb;
+  --dashboard-wave-middle: #d0cfcc;
+  --dashboard-wave-front: #c1c0bd;
+  background:
+    radial-gradient(ellipse at 74% 8%, rgb(0 0 0 / 3%), transparent 34%),
+    var(--dashboard-background) !important;
+}
+
+:root[data-theme="light"] .dashboard-starfield {
+  background-image:
+    radial-gradient(circle, rgb(30 30 30 / 48%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(30 30 30 / 34%) 0 1px, transparent 1.7px),
+    radial-gradient(circle, rgb(30 30 30 / 42%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(30 30 30 / 28%) 0 1px, transparent 1.7px),
+    radial-gradient(ellipse at 69% 28%, rgb(0 0 0 / 3%), transparent 32%);
+}
+
+:root[data-theme="light"] .dashboard-sidebar-scene {
+  background:
+    radial-gradient(ellipse at 24% 83%, rgb(0 0 0 / 4%), transparent 52%),
+    var(--dashboard-sidebar-background);
+}
+
+.dashboard-sidebar-scene::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 70%;
+  content: "";
+  background:
+    radial-gradient(circle at 18% 32%, rgb(255 255 255 / 54%) 0 1px, transparent 1.8px),
+    radial-gradient(circle at 81% 58%, rgb(255 255 255 / 38%) 0 1px, transparent 1.8px),
+    radial-gradient(circle at 60% 19%, rgb(255 255 255 / 44%) 0 1px, transparent 1.8px);
+  animation: dashboard-star-twinkle 7s ease-in-out infinite alternate;
+}
+
+:root[data-theme="light"] .dashboard-sidebar-scene::before {
+  background:
+    radial-gradient(circle at 18% 32%, rgb(30 30 30 / 34%) 0 1px, transparent 1.8px),
+    radial-gradient(circle at 81% 58%, rgb(30 30 30 / 26%) 0 1px, transparent 1.8px),
+    radial-gradient(circle at 60% 19%, rgb(30 30 30 / 30%) 0 1px, transparent 1.8px);
+}
+
+:root[data-theme="light"] .dashboard-shell > .dashboard-columns {
+  background-color: transparent;
+}
+
+:root[data-theme="light"] .dashboard-main {
+  background-color: rgb(249 248 246 / 92%);
+}
+
+:root[data-theme="light"] .dashboard-info-panel {
+  background-color: #f0efec !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="bg-white"] {
+  background-color: var(--dashboard-surface) !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="bg-neutral-50"] {
+  background-color: #f7f6f4 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="bg-neutral-100"] {
+  background-color: #e8e7e4 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="bg-neutral-200"] {
+  background-color: #dfdeda !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="text-neutral-950"],
+:root[data-theme="light"] .dashboard-shell [class~="text-neutral-900"],
+:root[data-theme="light"] .dashboard-shell [class~="text-neutral-800"] {
+  color: #171717 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="text-neutral-700"] {
+  color: #383838 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="text-neutral-600"],
+:root[data-theme="light"] .dashboard-shell [class~="text-neutral-500"] {
+  color: #505050 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="text-neutral-400"] {
+  color: #686868 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="border-neutral-100"],
+:root[data-theme="light"] .dashboard-shell [class~="border-neutral-200"],
+:root[data-theme="light"] .dashboard-shell [class~="border-neutral-300"] {
+  border-color: #d1d0cd !important;
+}
+
+:root[data-theme="light"] .dashboard-shell input,
+:root[data-theme="light"] .dashboard-shell textarea,
+:root[data-theme="light"] .dashboard-shell select {
+  color: #171717 !important;
+  background-color: #f6f5f3 !important;
+  border-color: #c9c8c5 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell input::placeholder,
+:root[data-theme="light"] .dashboard-shell textarea::placeholder {
+  color: #656565 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell input:focus,
+:root[data-theme="light"] .dashboard-shell textarea:focus,
+:root[data-theme="light"] .dashboard-shell select:focus {
+  border-color: #747474 !important;
+  --tw-ring-color: rgb(0 0 0 / 10%) !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="hover:bg-neutral-50"]:hover,
+:root[data-theme="light"] .dashboard-shell [class~="hover:bg-neutral-100"]:hover,
+:root[data-theme="light"] .dashboard-shell [class~="hover:bg-neutral-200"]:hover {
+  background-color: #deddd9 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="hover:text-neutral-950"]:hover {
+  color: #000 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="hover:border-neutral-400"]:hover {
+  border-color: #888 !important;
+}
+
+:root[data-theme="light"] .dashboard-shell h1,
+:root[data-theme="light"] .dashboard-shell h2,
+:root[data-theme="light"] .dashboard-shell h3,
+:root[data-theme="light"] .dashboard-shell .dashboard-welcome-copy > p:first-child {
+  color: #171717;
+  font-weight: 700;
+  text-shadow: 0 1px 5px rgb(0 0 0 / 8%);
+}
+
+:root[data-theme="light"] .dashboard-shell nav a,
+:root[data-theme="light"] .dashboard-shell nav button {
+  color: #414141;
+}
+
+:root[data-theme="light"] .dashboard-shell nav a[class~="bg-neutral-950"],
+:root[data-theme="light"] .dashboard-shell nav button[class~="bg-neutral-950"] {
+  color: #fff !important;
+}
+
+:root[data-theme="light"] .dashboard-shell .dashboard-mobile-account {
+  background-color: #f0efec !important;
+}
+
+:root[data-theme="light"] .dashboard-shell [class~="shadow-sm"],
+:root[data-theme="light"] .dashboard-shell [class~="shadow-md"],
+:root[data-theme="light"] .dashboard-shell [class~="shadow-lg"] {
+  --tw-shadow-color: rgb(0 0 0 / 12%);
+}
+
+.dashboard-right-character {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 8px;
+  animation: dashboard-character-float 7s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.dashboard-right-character-halo {
+  display: flex;
+  width: 126px;
+  height: 116px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse,
+    rgb(222 220 214 / 92%) 0%,
+    rgb(222 220 214 / 55%) 52%,
+    transparent 74%
+  );
+}
+
+.dashboard-right-character img {
+  display: block;
+  width: 106px;
+  height: 96px;
+  object-fit: contain;
+}
+
+.dashboard-profile-modal {
+  max-height: calc(100vh - 1.5rem);
+  max-height: calc(100dvh - 1.5rem);
+}
+
+@keyframes dashboard-wave-drift {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes dashboard-character-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes dashboard-star-twinkle {
+  from {
+    opacity: 0.62;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1023px) {
+  .dashboard-sidebar {
+    position: relative !important;
+    top: auto !important;
+    align-self: auto;
+  }
+
+  .dashboard-scene {
+    left: 0;
+  }
+
+  .dashboard-sidebar-scene {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-scene {
+    height: clamp(170px, 25vh, 230px);
+  }
+
+  .dashboard-welcome-title {
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 1.75rem;
+  }
+
+  .dashboard-welcome-title img {
+    width: 80px;
+    margin-top: 3px;
+  }
+
+  .dashboard-profile-modal {
+    max-height: calc(100vh - 1.5rem);
+    max-height: calc(100dvh - 1.5rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-wave,
+  .dashboard-sidebar-wave,
+  .dashboard-sidebar-character,
+  .dashboard-welcome-title img,
+  .dashboard-right-character,
+  .dashboard-starfield {
+    animation: none;
+    will-change: auto;
+  }
+}

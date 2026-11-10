@@ -12,7 +12,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  CircleAlert,
   Code2,
   Compass,
   Gamepad2,
@@ -37,6 +36,12 @@ import {
   getNextCursor,
   mergeMessagesChronologically,
 } from "../utils/apiHelpers";
+import yappyLogo from "../assets/images/yappy-logo.svg";
+import yappyHeading from "../assets/images/yappyheading.svg";
+import dashboardCharacter from "../assets/images/dashboardchar.svg";
+import loginCharacter from "../assets/images/loginch.svg";
+import dashboardRightCharacter from "../assets/images/dashboardrightside.svg";
+import "./DashboardPage.css";
 
 const navigationItems = [
   { label: "Dashboard", href: "#dashboard", Icon: LayoutDashboard },
@@ -256,6 +261,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [createModalStep, setCreateModalStep] = useState("choose");
   const [creationSuccess, setCreationSuccess] = useState("");
   const createModalRef = useRef(null);
+  const profileSettingsDialogRef = useRef(null);
   const createTriggerRef = useRef(null);
   const createChannelDialogRef = useRef(null);
   const createChannelTriggerRef = useRef(null);
@@ -270,7 +276,9 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [profileError, setProfileError] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const profileMenuTriggerRef = useRef(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [activeNav, setActiveNav] = useState("Dashboard");
@@ -616,14 +624,17 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     createModalOpen ||
     editCommunityOpen ||
     deleteCommunityOpen ||
-    createChannelOpen;
-  const activeDashboardDialogRef = createModalOpen
-    ? createModalRef
-    : editCommunityOpen
-      ? editCommunityDialogRef
-      : deleteCommunityOpen
-        ? deleteCommunityDialogRef
-        : createChannelDialogRef;
+    createChannelOpen ||
+    profileSettingsOpen;
+  const activeDashboardDialogRef = profileSettingsOpen
+    ? profileSettingsDialogRef
+    : createModalOpen
+      ? createModalRef
+      : editCommunityOpen
+        ? editCommunityDialogRef
+        : deleteCommunityOpen
+          ? deleteCommunityDialogRef
+          : createChannelDialogRef;
 
   /**
    * Keep keyboard focus inside whichever dashboard dialog is open. Sharing one
@@ -645,12 +656,15 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
           creating ||
           savingCommunityEdit ||
           deletingCommunity ||
-          creatingChannel
+          creatingChannel ||
+          savingProfile
         ) {
           return;
         }
 
-        if (createModalOpen) {
+        if (profileSettingsOpen) {
+          setProfileSettingsOpen(false);
+        } else if (createModalOpen) {
           modalFocusReturnRef.current = {
             element: createTriggerRef.current,
             shouldScroll: false,
@@ -717,6 +731,8 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     deletingCommunity,
     editCommunityOpen,
     savingCommunityEdit,
+    profileSettingsOpen,
+    savingProfile,
   ]);
 
   // Restore focus after React removes the last open dialog. Dialog openers and
@@ -739,6 +755,25 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     setCreationSuccess("");
     setCreateModalStep("choose");
     setCreateModalOpen(true);
+  }
+
+  function openProfileSettings(trigger) {
+    modalFocusReturnRef.current = {
+      element: trigger,
+      shouldScroll: false,
+    };
+    setProfileError("");
+    setProfileMessage("");
+    setProfileMenuOpen(false);
+    setProfileSettingsOpen(true);
+  }
+
+  function closeProfileSettings() {
+    if (savingProfile) {
+      return;
+    }
+
+    setProfileSettingsOpen(false);
   }
 
   const closeCreateModal = useCallback(() => {
@@ -1279,21 +1314,119 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const profileName = displayName || "Your profile";
 
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-950 lg:flex">
+    <div className="dashboard-shell min-h-screen bg-neutral-50 text-neutral-950 lg:flex">
+      <div className="dashboard-starfield" aria-hidden="true" />
+      <div className="dashboard-scene" aria-hidden="true">
+        <svg
+          className="dashboard-wave dashboard-wave-back"
+          viewBox="0 0 2880 460"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M0 190C240 100 480 280 720 190C960 100 1200 280 1440 190V460H0Z"
+            fill="var(--dashboard-wave-back)"
+          />
+          <path
+            d="M0 190C240 100 480 280 720 190C960 100 1200 280 1440 190V460H0Z"
+            fill="var(--dashboard-wave-back)"
+            transform="translate(1440)"
+          />
+        </svg>
+        <svg
+          className="dashboard-wave dashboard-wave-middle"
+          viewBox="0 0 2880 460"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M0 190C240 125 480 255 720 190C960 125 1200 255 1440 190V460H0Z"
+            fill="var(--dashboard-wave-middle)"
+          />
+          <path
+            d="M0 190C240 125 480 255 720 190C960 125 1200 255 1440 190V460H0Z"
+            fill="var(--dashboard-wave-middle)"
+            transform="translate(1440)"
+          />
+        </svg>
+        <svg
+          className="dashboard-wave dashboard-wave-front"
+          viewBox="0 0 2880 460"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M0 190C240 105 480 275 720 190C960 105 1200 275 1440 190V460H0Z"
+            fill="var(--dashboard-wave-front)"
+          />
+          <path
+            d="M0 190C240 105 480 275 720 190C960 105 1200 275 1440 190V460H0Z"
+            fill="var(--dashboard-wave-front)"
+            transform="translate(1440)"
+          />
+        </svg>
+      </div>
       {/* The fixed desktop rail becomes a wrapping navigation bar on smaller screens. */}
-      <aside className="border-b border-neutral-200 bg-white px-4 py-4 lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-[250px] lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r lg:px-5 lg:py-6">
+      <aside className="dashboard-sidebar border-b border-neutral-200 bg-white px-4 py-4 lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-[250px] lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r lg:px-5 lg:py-6">
+        <div className="dashboard-sidebar-scene" aria-hidden="true">
+          <img src={loginCharacter} alt="" className="dashboard-sidebar-character" />
+          <svg
+            className="dashboard-sidebar-wave dashboard-sidebar-wave-back"
+            viewBox="0 0 2880 460"
+            preserveAspectRatio="none"
+          >
+            <path
+              d="M0 190C240 100 480 280 720 190C960 100 1200 280 1440 190V460H0Z"
+              fill="var(--dashboard-wave-back)"
+            />
+            <path
+              d="M0 190C240 100 480 280 720 190C960 100 1200 280 1440 190V460H0Z"
+              fill="var(--dashboard-wave-back)"
+              transform="translate(1440)"
+            />
+          </svg>
+          <svg
+            className="dashboard-sidebar-wave dashboard-sidebar-wave-middle"
+            viewBox="0 0 2880 460"
+            preserveAspectRatio="none"
+          >
+            <path
+              d="M0 190C240 125 480 255 720 190C960 125 1200 255 1440 190V460H0Z"
+              fill="var(--dashboard-wave-middle)"
+            />
+            <path
+              d="M0 190C240 125 480 255 720 190C960 125 1200 255 1440 190V460H0Z"
+              fill="var(--dashboard-wave-middle)"
+              transform="translate(1440)"
+            />
+          </svg>
+          <svg
+            className="dashboard-sidebar-wave dashboard-sidebar-wave-front"
+            viewBox="0 0 2880 460"
+            preserveAspectRatio="none"
+          >
+            <path
+              d="M0 190C240 105 480 275 720 190C960 105 1200 275 1440 190V460H0Z"
+              fill="var(--dashboard-wave-front)"
+            />
+            <path
+              d="M0 190C240 105 480 275 720 190C960 105 1200 275 1440 190V460H0Z"
+              fill="var(--dashboard-wave-front)"
+              transform="translate(1440)"
+            />
+          </svg>
+        </div>
         <a
           href="#dashboard"
           onClick={() => setActiveNav("Dashboard")}
           className="mb-5 flex w-fit items-center gap-3"
         >
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-950 text-white">
-            <MessageCircle size={20} />
+          <span className="dashboard-brand-mark flex h-10 w-10 items-center justify-center rounded-xl">
+            <img src={yappyLogo} alt="" />
           </span>
           <span>
-            <span className="block text-sm font-bold tracking-tight">
-              Smart Community
-            </span>
+            <img
+              src={yappyHeading}
+              alt="Yappy"
+              className="dashboard-brand-heading"
+            />
             <span className="mt-0.5 block text-[11px] text-neutral-500">
               Find your people
             </span>
@@ -1341,7 +1474,15 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
             <a
               key={label}
               href={href}
-              onClick={() => setActiveNav(label)}
+              onClick={(event) => {
+                if (label === "Settings") {
+                  event.preventDefault();
+                  setActiveNav(label);
+                  openProfileSettings(event.currentTarget);
+                  return;
+                }
+                setActiveNav(label);
+              }}
               className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                 activeNav === label
                   ? "bg-neutral-950 text-white"
@@ -1380,8 +1521,8 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       </aside>
 
       {/* The center column grows while the details rail is reserved for wide screens. */}
-      <div className="min-w-0 flex-1 xl:grid xl:grid-cols-[minmax(0,1fr)_300px]">
-        <main id="dashboard" className="min-w-0 px-4 py-5 sm:px-7 sm:py-7">
+      <div className="dashboard-columns min-w-0 flex-1 xl:grid xl:grid-cols-[minmax(0,1fr)_300px]">
+        <main id="dashboard" className="dashboard-main min-w-0 px-4 py-5 sm:px-7 sm:py-7">
           <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
             <label className="relative min-w-[220px] flex-1 sm:max-w-md">
               <span className="sr-only">Search joined communities</span>
@@ -1408,6 +1549,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                 <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-neutral-400" />
               </button>
               <button
+                ref={profileMenuTriggerRef}
                 type="button"
                 onClick={() => setProfileMenuOpen((open) => !open)}
                 aria-expanded={profileMenuOpen}
@@ -1422,16 +1564,16 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
 
               {profileMenuOpen && (
                 <div className="absolute right-0 top-full z-20 mt-2 w-52 rounded-xl border border-neutral-200 bg-white p-2 shadow-lg">
-                  <a
-                    href="#settings"
+                  <button
+                    type="button"
                     onClick={() => {
                       setActiveNav("Settings");
-                      setProfileMenuOpen(false);
+                      openProfileSettings(profileMenuTriggerRef.current);
                     }}
-                    className="block rounded-lg px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-100"
+                    className="block w-full rounded-lg px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100"
                   >
                     Profile settings
-                  </a>
+                  </button>
                   <button
                     type="button"
                     onClick={handleLogout}
@@ -1470,12 +1612,15 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
 
           <section className="mb-9">
             <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
+              <div className="dashboard-welcome-copy">
                 <p className="mb-2 text-sm font-medium text-neutral-500">
                   Your community space
                 </p>
-                <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                  Welcome{displayName ? `, ${displayName}` : " back"}.
+                <h1 className="dashboard-welcome-title text-3xl font-semibold tracking-tight sm:text-4xl">
+                  <span>
+                    Welcome{displayName ? `, ${displayName}` : " back"}.
+                  </span>
+                  <img src={dashboardCharacter} alt="" />
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">
                   Catch up with your communities and continue the conversation.
@@ -1860,96 +2005,10 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
             </div>
           </section>
 
-          <section id="settings" className="scroll-mt-6">
-            <SectionHeading eyebrow="Your account" title="Profile settings" />
-            <form
-              onSubmit={handleSaveProfile}
-              className="rounded-2xl border border-neutral-200 bg-white p-4 sm:p-5"
-            >
-              <div className="mb-5 flex items-center gap-3">
-                <UserAvatar profile={profile} />
-                <span>
-                  <span className="block text-sm font-semibold">
-                    {profileName}
-                  </span>
-                  <span className="block text-xs text-neutral-500">
-                    {profile?.email || "Account profile"}
-                  </span>
-                </span>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="text-xs font-medium text-neutral-600">
-                  Display name
-                  <input
-                    required
-                    maxLength={50}
-                    value={profileDraft.display_name}
-                    onChange={(event) =>
-                      setProfileDraft((current) => ({
-                        ...current,
-                        display_name: event.target.value,
-                      }))
-                    }
-                    className="mt-1.5 w-full rounded-lg border border-neutral-200 px-3 py-2.5 text-sm text-neutral-950 outline-none focus:border-neutral-500 focus:ring-2 focus:ring-neutral-100"
-                  />
-                </label>
-                <label className="text-xs font-medium text-neutral-600">
-                  Status
-                  <select
-                    value={profileDraft.status}
-                    onChange={(event) =>
-                      setProfileDraft((current) => ({
-                        ...current,
-                        status: event.target.value,
-                      }))
-                    }
-                    className="mt-1.5 w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-950 outline-none focus:border-neutral-500 focus:ring-2 focus:ring-neutral-100"
-                  >
-                    <option value="online">Online</option>
-                    <option value="away">Away</option>
-                    <option value="dnd">Do not disturb</option>
-                  </select>
-                </label>
-                <label className="text-xs font-medium text-neutral-600 sm:col-span-2">
-                  Bio
-                  <textarea
-                    maxLength={200}
-                    rows={3}
-                    value={profileDraft.bio}
-                    onChange={(event) =>
-                      setProfileDraft((current) => ({
-                        ...current,
-                        bio: event.target.value,
-                      }))
-                    }
-                    className="mt-1.5 w-full resize-y rounded-lg border border-neutral-200 px-3 py-2.5 text-sm text-neutral-950 outline-none focus:border-neutral-500 focus:ring-2 focus:ring-neutral-100"
-                  />
-                </label>
-              </div>
-              {profileError && (
-                <p role="alert" className="mt-3 text-sm text-red-700">
-                  {profileError}
-                </p>
-              )}
-              {profileMessage && (
-                <p role="status" className="mt-3 text-sm text-neutral-700">
-                  {profileMessage}
-                </p>
-              )}
-              <button
-                type="submit"
-                disabled={savingProfile}
-                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-neutral-950 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-neutral-700 disabled:opacity-60"
-              >
-                {savingProfile ? "Saving..." : "Save profile"}
-                {!savingProfile && <Check size={15} />}
-              </button>
-            </form>
-          </section>
         </main>
 
         {/* This contextual rail is hidden on narrow screens to keep the main content readable. */}
-        <aside className="hidden border-l border-neutral-200 bg-white px-5 py-7 xl:block">
+        <aside className="dashboard-info-panel hidden border-l border-neutral-200 bg-white px-5 py-7 xl:block">
           <div className="sticky top-7 space-y-7">
             <section>
               <SectionHeading eyebrow="Selected space" title="Community info" />
@@ -2065,20 +2124,142 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
               )}
             </section>
 
-            <section className="rounded-2xl bg-neutral-950 p-4 text-white">
-              <div className="mb-3 flex items-center gap-2">
-                <CircleAlert size={16} />
-                <h3 className="text-sm font-semibold">API availability</h3>
-              </div>
-              <p className="text-xs leading-5 text-neutral-300">
-                Notifications, posts, comments, member directory, and global
-                search are pending because the deployed API does not document
-                endpoints for them.
-              </p>
-            </section>
+            <div className="dashboard-right-character" aria-hidden="true">
+              <span className="dashboard-right-character-halo">
+                <img src={dashboardRightCharacter} alt="" />
+              </span>
+            </div>
           </div>
         </aside>
       </div>
+
+      {profileSettingsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-neutral-950/60 p-3 backdrop-blur-[2px] sm:p-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeProfileSettings();
+            }
+          }}
+        >
+          <section
+            ref={profileSettingsDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-settings-title"
+            aria-busy={savingProfile}
+            tabIndex={-1}
+            className="dashboard-profile-modal my-auto w-full max-w-lg overflow-y-auto rounded-2xl border border-neutral-200 bg-white shadow-2xl outline-none"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-5 sm:px-7">
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
+                  Your account
+                </p>
+                <h2
+                  id="profile-settings-title"
+                  className="text-xl font-semibold tracking-tight sm:text-2xl"
+                >
+                  Profile settings
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={closeProfileSettings}
+                disabled={savingProfile}
+                aria-label="Close profile settings"
+                className="shrink-0 rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X size={19} />
+              </button>
+            </header>
+            <form
+              onSubmit={handleSaveProfile}
+              className="px-5 py-5 sm:px-7 sm:py-6"
+            >
+              <div className="mb-5 flex items-center gap-3">
+                <UserAvatar profile={profile} />
+                <span>
+                  <span className="block text-sm font-semibold">
+                    {profileName}
+                  </span>
+                  <span className="block text-xs text-neutral-500">
+                    {profile?.email || "Account profile"}
+                  </span>
+                </span>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-xs font-medium text-neutral-600">
+                  Display name
+                  <input
+                    data-modal-autofocus="true"
+                    required
+                    maxLength={50}
+                    value={profileDraft.display_name}
+                    onChange={(event) =>
+                      setProfileDraft((current) => ({
+                        ...current,
+                        display_name: event.target.value,
+                      }))
+                    }
+                    className="mt-1.5 w-full rounded-lg border border-neutral-200 px-3 py-2.5 text-sm text-neutral-950 outline-none focus:border-neutral-500 focus:ring-2 focus:ring-neutral-100"
+                  />
+                </label>
+                <label className="text-xs font-medium text-neutral-600">
+                  Status
+                  <select
+                    value={profileDraft.status}
+                    onChange={(event) =>
+                      setProfileDraft((current) => ({
+                        ...current,
+                        status: event.target.value,
+                      }))
+                    }
+                    className="mt-1.5 w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-950 outline-none focus:border-neutral-500 focus:ring-2 focus:ring-neutral-100"
+                  >
+                    <option value="online">Online</option>
+                    <option value="away">Away</option>
+                    <option value="dnd">Do not disturb</option>
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-neutral-600 sm:col-span-2">
+                  Bio
+                  <textarea
+                    maxLength={200}
+                    rows={3}
+                    value={profileDraft.bio}
+                    onChange={(event) =>
+                      setProfileDraft((current) => ({
+                        ...current,
+                        bio: event.target.value,
+                      }))
+                    }
+                    className="mt-1.5 w-full resize-y rounded-lg border border-neutral-200 px-3 py-2.5 text-sm text-neutral-950 outline-none focus:border-neutral-500 focus:ring-2 focus:ring-neutral-100"
+                  />
+                </label>
+              </div>
+              {profileError && (
+                <p role="alert" className="mt-3 text-sm text-red-700">
+                  {profileError}
+                </p>
+              )}
+              {profileMessage && (
+                <p role="status" className="mt-3 text-sm text-neutral-700">
+                  {profileMessage}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={savingProfile}
+                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-neutral-950 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-neutral-700 disabled:opacity-60"
+              >
+                {savingProfile ? "Saving..." : "Save profile"}
+                {!savingProfile && <Check size={15} />}
+              </button>
+            </form>
+          </section>
+        </div>
+      )}
 
       {createModalOpen && (
         <div
@@ -2589,7 +2770,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
       )}
 
       {/* Mobile users also need the account controls that sit at the desktop rail's bottom. */}
-      <div className="border-t border-neutral-200 bg-white px-4 py-3 lg:hidden">
+      <div className="dashboard-mobile-account border-t border-neutral-200 bg-white px-4 py-3 lg:hidden">
         <div className="mx-auto flex max-w-3xl items-center gap-3">
           <UserAvatar profile={profile} className="h-9 w-9" />
           <span className="min-w-0 flex-1">
