@@ -45,6 +45,10 @@ import {
   getNextCursor,
   mergeMessagesChronologically,
 } from "../utils/apiHelpers";
+import {
+  getCommunityImage,
+  readCommunityImageAssignments,
+} from "../utils/communityImages";
 import "./CommunityWorkspacePage.css";
 
 function formatBytes(bytes) {
@@ -125,6 +129,7 @@ export default function CommunityWorkspacePage({ profile }) {
   const { serverId = "" } = useParams();
   const navigate = useNavigate();
   const [servers, setServers] = useState([]);
+  const [communityImageAssignments] = useState(readCommunityImageAssignments);
   const [serversLoading, setServersLoading] = useState(true);
   const [serversError, setServersError] = useState("");
   const [serversRefreshKey, setServersRefreshKey] = useState(0);
@@ -2031,15 +2036,11 @@ export default function CommunityWorkspacePage({ profile }) {
                     : "border-neutral-200 bg-neutral-50 text-neutral-700 hover:border-neutral-400 hover:bg-neutral-100"
                 }`}
               >
-                {server.icon ? (
-                  <img
-                    src={server.icon}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <UsersRound size={18} aria-hidden="true" />
-                )}
+                <img
+                  src={getCommunityImage(server, communityImageAssignments)}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
               </button>
             );
           })

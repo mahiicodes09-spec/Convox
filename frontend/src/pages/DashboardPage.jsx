@@ -36,11 +36,15 @@ import {
   getNextCursor,
   mergeMessagesChronologically,
 } from "../utils/apiHelpers";
+import {
+  getCommunityImage,
+  persistCommunityImageAssignments,
+  readCommunityImageAssignments,
+} from "../utils/communityImages";
 import yappyLogo from "../assets/images/yappy-logo.svg";
 import yappyHeading from "../assets/images/yappyheading.svg";
 import dashboardCharacter from "../assets/images/dashboardchar.svg";
 import loginCharacter from "../assets/images/loginch.svg";
-import dashboardRightCharacter from "../assets/images/dashboardrightside.svg";
 import "./DashboardPage.css";
 
 const navigationItems = [
@@ -59,24 +63,28 @@ const communityTemplates = [
     Icon: Code2,
     communityName: "Technology Community",
     description: "Share ideas, projects, and discoveries in technology.",
+    imageId: "technology",
   },
   {
     name: "Study Group",
     Icon: BookOpen,
     communityName: "Study Group",
     description: "Learn together, stay focused, and share useful resources.",
+    imageId: "study",
   },
   {
     name: "Gaming",
     Icon: Gamepad2,
     communityName: "Gaming Community",
     description: "Find teammates and talk about the games you enjoy.",
+    imageId: "gaming",
   },
   {
     name: "Friends",
     Icon: Heart,
     communityName: "Friends",
     description: "A private-feeling space to keep up with your friends.",
+    imageId: "friends",
   },
 ];
 
@@ -136,7 +144,7 @@ function SectionHeading({ eyebrow, title, children }) {
  * Each card displays only fields confirmed by the Server response schema.
  * Selecting a card opens its dedicated community workspace.
  */
-function CommunityCard({ server, selected, onSelect }) {
+function CommunityCard({ server, image, selected, onSelect }) {
   return (
     <button
       type="button"
@@ -150,17 +158,11 @@ function CommunityCard({ server, selected, onSelect }) {
     >
       <span className="flex items-start justify-between gap-3">
         <span className="flex min-w-0 items-center gap-3">
-          {server.icon ? (
-            <img
-              src={server.icon}
-              alt=""
-              className="h-11 w-11 shrink-0 rounded-xl border border-neutral-200 object-cover"
-            />
-          ) : (
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white">
-              <UsersRound size={19} />
-            </span>
-          )}
+          <img
+            src={image}
+            alt=""
+            className="h-11 w-11 shrink-0 rounded-xl border border-neutral-200 object-cover"
+          />
           <span className="min-w-0">
             <span className="block truncate font-semibold text-neutral-950">
               {server.name}
@@ -202,6 +204,9 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   // Community, channel, and message state is separate so each API section can
   // show its own loading and error state without blocking the whole dashboard.
   const [servers, setServers] = useState([]);
+  const [communityImageAssignments, setCommunityImageAssignments] = useState(
+    readCommunityImageAssignments,
+  );
   const [serversRefreshKey, setServersRefreshKey] = useState(0);
   const [selectedServerId, setSelectedServerId] = useState("");
   const [channels, setChannels] = useState([]);
@@ -242,6 +247,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   const [joining, setJoining] = useState(false);
   const [communityName, setCommunityName] = useState("");
   const [communityDescription, setCommunityDescription] = useState("");
+  const [communityImageId, setCommunityImageId] = useState("created");
   const [createError, setCreateError] = useState("");
   const [creating, setCreating] = useState(false);
   // These states track the selected server being edited and whether its
@@ -754,6 +760,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     setCreateError("");
     setCreationSuccess("");
     setCreateModalStep("choose");
+    setCommunityImageId("created");
     setCreateModalOpen(true);
   }
 
@@ -996,6 +1003,11 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     try {
       await api.delete(`/servers/${deletedServerId}/`);
 
+      const nextImageAssignments = { ...communityImageAssignments };
+      delete nextImageAssignments[deletedServerId];
+      setCommunityImageAssignments(nextImageAssignments);
+      persistCommunityImageAssignments(nextImageAssignments);
+
       const remainingServers = servers.filter(
         (server) => String(server.id) !== deletedServerId,
       );
@@ -1040,6 +1052,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   function handleChooseTemplate(template) {
     setCommunityName(template.communityName);
     setCommunityDescription(template.description);
+    setCommunityImageId(template.imageId);
     setCreateError("");
     setCreateModalStep("details");
   }
@@ -1105,6 +1118,12 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
         invite_code: inviteCode.trim(),
       });
       const joinedServer = response.data;
+      const nextImageAssignments = {
+        ...communityImageAssignments,
+        [String(joinedServer.id)]: "invited",
+      };
+      setCommunityImageAssignments(nextImageAssignments);
+      persistCommunityImageAssignments(nextImageAssignments);
       setServers((currentServers) =>
         currentServers.some((server) => server.id === joinedServer.id)
           ? currentServers
@@ -1156,6 +1175,12 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
         description: communityDescription.trim(),
       });
       const createdServer = response.data;
+      const nextImageAssignments = {
+        ...communityImageAssignments,
+        [String(createdServer.id)]: communityImageId,
+      };
+      setCommunityImageAssignments(nextImageAssignments);
+      persistCommunityImageAssignments(nextImageAssignments);
       setServers((currentServers) => [createdServer, ...currentServers]);
       setChannels([]);
       setSelectedChannelId("");
@@ -1701,6 +1726,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                   <CommunityCard
                     key={server.id}
                     server={server}
+                    image={getCommunityImage(server, communityImageAssignments)}
                     selected={String(server.id) === selectedServerId}
                     onSelect={() => {
                       setCommunityActionError("");
@@ -2009,22 +2035,66 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
 
         {/* This contextual rail is hidden on narrow screens to keep the main content readable. */}
         <aside className="dashboard-info-panel hidden border-l border-neutral-200 bg-white px-5 py-7 xl:block">
-          <div className="sticky top-7 space-y-7">
+          <div className="dashboard-info-scene" aria-hidden="true">
+            <svg
+              className="dashboard-info-wave dashboard-info-wave-back"
+              viewBox="0 0 2880 460"
+              preserveAspectRatio="none"
+            >
+              <path
+                d="M0 190C240 100 480 280 720 190C960 100 1200 280 1440 190V460H0Z"
+                fill="var(--dashboard-wave-back)"
+              />
+              <path
+                d="M0 190C240 100 480 280 720 190C960 100 1200 280 1440 190V460H0Z"
+                fill="var(--dashboard-wave-back)"
+                transform="translate(1440)"
+              />
+            </svg>
+            <svg
+              className="dashboard-info-wave dashboard-info-wave-middle"
+              viewBox="0 0 2880 460"
+              preserveAspectRatio="none"
+            >
+              <path
+                d="M0 190C240 125 480 255 720 190C960 125 1200 255 1440 190V460H0Z"
+                fill="var(--dashboard-wave-middle)"
+              />
+              <path
+                d="M0 190C240 125 480 255 720 190C960 125 1200 255 1440 190V460H0Z"
+                fill="var(--dashboard-wave-middle)"
+                transform="translate(1440)"
+              />
+            </svg>
+            <svg
+              className="dashboard-info-wave dashboard-info-wave-front"
+              viewBox="0 0 2880 460"
+              preserveAspectRatio="none"
+            >
+              <path
+                d="M0 190C240 105 480 275 720 190C960 105 1200 275 1440 190V460H0Z"
+                fill="var(--dashboard-wave-front)"
+              />
+              <path
+                d="M0 190C240 105 480 275 720 190C960 105 1200 275 1440 190V460H0Z"
+                fill="var(--dashboard-wave-front)"
+                transform="translate(1440)"
+              />
+            </svg>
+          </div>
+          <div className="dashboard-info-content sticky top-7 space-y-7">
             <section>
               <SectionHeading eyebrow="Selected space" title="Community info" />
               {selectedServer ? (
                 <div className="rounded-2xl border border-neutral-200 p-4">
-                  {selectedServer.icon ? (
-                    <img
-                      src={selectedServer.icon}
-                      alt=""
-                      className="mb-4 h-12 w-12 rounded-xl border border-neutral-200 object-cover"
-                    />
-                  ) : (
-                    <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-950 text-white">
-                      <UsersRound size={20} />
-                    </span>
-                  )}
+                  <img
+                    src={getCommunityImage(
+                      selectedServer,
+                      communityImageAssignments,
+                    )}
+                    alt=""
+                    className="mb-4 h-12 w-12 rounded-xl border border-neutral-200 object-cover"
+                  />
                   <h3 className="font-semibold">{selectedServer.name}</h3>
                   <p className="mt-2 text-sm leading-6 text-neutral-600">
                     {selectedServer.description || "No description provided."}
@@ -2124,11 +2194,6 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
               )}
             </section>
 
-            <div className="dashboard-right-character" aria-hidden="true">
-              <span className="dashboard-right-character-halo">
-                <img src={dashboardRightCharacter} alt="" />
-              </span>
-            </div>
           </div>
         </aside>
       </div>
@@ -2320,6 +2385,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                   data-modal-autofocus="true"
                   onClick={() => {
                     setCreateError("");
+                    setCommunityImageId("created");
                     setCreateModalStep("details");
                   }}
                   className="group flex w-full items-center justify-between gap-4 rounded-xl border border-neutral-300 bg-neutral-50 p-4 text-left transition hover:border-neutral-500 hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"

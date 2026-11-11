@@ -149,6 +149,64 @@
   z-index: 5;
 }
 
+.dashboard-info-panel {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  isolation: isolate;
+  height: 100vh;
+  min-height: 100vh;
+  background-color: transparent !important;
+}
+
+:root[data-theme] .dashboard-shell .dashboard-info-panel {
+  background-color: transparent !important;
+}
+
+.dashboard-info-scene {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 68% 82%, rgb(255 255 255 / 7%), transparent 52%),
+    var(--dashboard-sidebar-background);
+  pointer-events: none;
+}
+
+.dashboard-info-wave {
+  position: absolute;
+  left: 0;
+  width: 200%;
+  animation: dashboard-wave-drift 88s linear infinite;
+  will-change: transform;
+}
+
+.dashboard-info-wave-back {
+  z-index: 1;
+  bottom: 0;
+  height: 190px;
+  animation-duration: 104s;
+}
+
+.dashboard-info-wave-middle {
+  z-index: 2;
+  bottom: 0;
+  height: 150px;
+  animation-duration: 86s;
+}
+
+.dashboard-info-wave-front {
+  z-index: 4;
+  bottom: 0;
+  height: 112px;
+  animation-duration: 72s;
+}
+
+.dashboard-info-content {
+  z-index: 5;
+}
+
 .dashboard-brand-mark {
   flex: 0 0 auto;
   background: #e8e8e8;
@@ -422,36 +480,6 @@
   --tw-shadow-color: rgb(0 0 0 / 12%);
 }
 
-.dashboard-right-character {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0 8px;
-  animation: dashboard-character-float 7s ease-in-out infinite;
-  transform-origin: center;
-}
-
-.dashboard-right-character-halo {
-  display: flex;
-  width: 126px;
-  height: 116px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: radial-gradient(
-    ellipse,
-    rgb(222 220 214 / 92%) 0%,
-    rgb(222 220 214 / 55%) 52%,
-    transparent 74%
-  );
-}
-
-.dashboard-right-character img {
-  display: block;
-  width: 106px;
-  height: 96px;
-  object-fit: contain;
-}
-
 .dashboard-profile-modal {
   max-height: calc(100vh - 1.5rem);
   max-height: calc(100dvh - 1.5rem);
@@ -502,6 +530,10 @@
   .dashboard-sidebar-scene {
     display: none;
   }
+
+  .dashboard-info-panel {
+    display: none;
+  }
 }
 
 @media (max-width: 640px) {
@@ -529,9 +561,9 @@
 @media (prefers-reduced-motion: reduce) {
   .dashboard-wave,
   .dashboard-sidebar-wave,
+  .dashboard-info-wave,
   .dashboard-sidebar-character,
   .dashboard-welcome-title img,
-  .dashboard-right-character,
   .dashboard-starfield {
     animation: none;
     will-change: auto;

@@ -14,6 +14,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import DashboardPage from "./pages/DashboardPage";
 import CommunityWorkspacePage from "./pages/CommunityWorkspacePage";
+import CursorStarTrail from "./components/CursorStarTrail";
 
 /**
  * Checks the saved access token before showing protected content.
@@ -99,7 +100,12 @@ function ProtectedRoute({ children }) {
     );
   }
 
-  return typeof children === "function" ? children(profile) : children;
+  return (
+    <>
+      {typeof children === "function" ? children(profile) : children}
+      <CursorStarTrail />
+    </>
+  );
 }
 
 export default function App() {
