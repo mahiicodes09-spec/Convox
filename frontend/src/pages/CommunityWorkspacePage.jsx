@@ -22,6 +22,7 @@ import {
   Hash,
   Info,
   LoaderCircle,
+  LogOut,
   Menu,
   MessageCircle,
   Paperclip,
@@ -49,6 +50,7 @@ import {
   getCommunityImage,
   readCommunityImageAssignments,
 } from "../utils/communityImages";
+import workspaceCharacter from "../assets/images/dashboardrightside.svg";
 import "./CommunityWorkspacePage.css";
 
 function formatBytes(bytes) {
@@ -129,6 +131,7 @@ export default function CommunityWorkspacePage({ profile }) {
   const { serverId = "" } = useParams();
   const navigate = useNavigate();
   const [servers, setServers] = useState([]);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [communityImageAssignments] = useState(readCommunityImageAssignments);
   const [serversLoading, setServersLoading] = useState(true);
   const [serversError, setServersError] = useState("");
@@ -1973,8 +1976,84 @@ export default function CommunityWorkspacePage({ profile }) {
     setMobileChannelsOpen(true);
   }
 
+  async function handleLogout() {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+    const refreshToken = localStorage.getItem("refreshToken");
+    let logoutError = "";
+
+    try {
+      if (!refreshToken) {
+        throw new Error("No refresh token is available to invalidate.");
+      }
+      await api.post("/auth/logout/", { refresh: refreshToken });
+    } catch (error) {
+      logoutError = getApiErrorMessage(
+        error,
+        "The server could not confirm logout. You have been signed out on this device.",
+      );
+    } finally {
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      navigate("/login", {
+        replace: true,
+        state: logoutError ? { logoutError } : undefined,
+      });
+    }
+  }
+
   return (
     <div className="community-workspace flex h-dvh min-h-[520px] flex-col overflow-hidden bg-neutral-100 text-neutral-950 lg:flex-row">
+      <div className="community-workspace__backdrop" aria-hidden="true">
+        <svg
+          className="community-workspace__wave community-workspace__wave--back"
+          viewBox="0 0 2880 460"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M0 190C240 100 480 280 720 190C960 100 1200 280 1440 190V460H0Z"
+            fill="var(--workspace-wave-back)"
+          />
+          <path
+            d="M0 190C240 100 480 280 720 190C960 100 1200 280 1440 190V460H0Z"
+            fill="var(--workspace-wave-back)"
+            transform="translate(1440)"
+          />
+        </svg>
+        <svg
+          className="community-workspace__wave community-workspace__wave--middle"
+          viewBox="0 0 2880 460"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M0 190C240 125 480 255 720 190C960 125 1200 255 1440 190V460H0Z"
+            fill="var(--workspace-wave-middle)"
+          />
+          <path
+            d="M0 190C240 125 480 255 720 190C960 125 1200 255 1440 190V460H0Z"
+            fill="var(--workspace-wave-middle)"
+            transform="translate(1440)"
+          />
+        </svg>
+        <svg
+          className="community-workspace__wave community-workspace__wave--front"
+          viewBox="0 0 2880 460"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M0 190C240 105 480 275 720 190C960 105 1200 275 1440 190V460H0Z"
+            fill="var(--workspace-wave-front)"
+          />
+          <path
+            d="M0 190C240 105 480 275 720 190C960 105 1200 275 1440 190V460H0Z"
+            fill="var(--workspace-wave-front)"
+            transform="translate(1440)"
+          />
+        </svg>
+      </div>
       <aside
         aria-label="Community navigation"
         className={`community-workspace__community-rail ${
@@ -2170,7 +2249,7 @@ export default function CommunityWorkspacePage({ profile }) {
           )}
 
           <div className="community-workspace__profile-panel mt-auto flex border-t border-neutral-200 p-3">
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-xs font-semibold text-white">
                 {profileName
                   .split(/\s+/)
@@ -2188,12 +2267,16 @@ export default function CommunityWorkspacePage({ profile }) {
                 </span>
               </span>
             </div>
-            <Link
-              to="/dashboard#settings"
-              className="community-workspace__account-link"
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              aria-label="Log out"
+              title="Log out"
+              className="community-workspace__logout-button"
             >
-              Account settings
-            </Link>
+              <LogOut size={17} aria-hidden="true" />
+            </button>
           </div>
         </div>
       </aside>
@@ -2398,7 +2481,7 @@ export default function CommunityWorkspacePage({ profile }) {
                     >
                     <div className="community-workspace__welcome-content">
                       <span className="community-workspace__welcome-mark">
-                        <UsersRound size={28} aria-hidden="true" />
+                        <img src={workspaceCharacter} alt="" />
                       </span>
                       <p className="community-workspace__welcome-eyebrow">
                         Smart Community
