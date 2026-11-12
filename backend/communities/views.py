@@ -83,10 +83,10 @@ class ChannelListCreateView(generics.ListCreateAPIView):
         server = self.get_server()
         member = ServerMember.objects.get(server=server, user=self.request.user)
         if member.role not in ["owner", "admin"]:
-            raise PermissionDenied("Sirf owner ya admin channel bana sakte hain.")
+            raise PermissionDenied("only owner or admin can create the channel")
         name = serializer.validated_data["name"]
         if Channel.objects.filter(server=server, name=name).exists():
-            raise ValidationError({"name": "Is naam ka channel pehle se hai."})
+            raise ValidationError({"name": "channel from this name already exist"})
         serializer.save(server=server)
         cache.delete(f"channels:{server.id}")
 
@@ -112,8 +112,8 @@ class MemberRoleView(generics.UpdateAPIView):
     def get_object(self):
         server = get_object_or_404(Server, id=self.kwargs["server_id"], members__user=self.request.user)
         if server.owner != self.request.user:
-            raise PermissionDenied("Sirf owner roles badal sakta hai.")
+            raise PermissionDenied("roles can be changed by owner only")
         member = get_object_or_404(ServerMember, server=server, user_id=self.kwargs["user_id"])
         if member.user_id == server.owner_id:
-            raise PermissionDenied("Owner ka role nahi badal sakte.")
+            raise PermissionDenied("cannot change the role of owner")
         return member

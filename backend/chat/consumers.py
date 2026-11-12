@@ -26,15 +26,15 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     async def receive_json(self, content):
         text = str(content.get("content", "")).strip()
         if not text:
-            await self.send_json({"type": "error", "detail": "Message khaali nahi ho sakta."})
+            await self.send_json({"type": "error", "detail": "message cannot be empty"})
             return
         if len(text) > 2000:
-            await self.send_json({"type": "error", "detail": "Message 2000 characters se lamba hai."})
+            await self.send_json({"type": "error", "detail": "message contain more than 2000 characters"})
             return
 
         restriction = await self.get_restriction()
         if restriction:
-            await self.send_json({"type": "error", "detail": f"Aap abhi {restriction} hain, message nahi bhej sakte."})
+            await self.send_json({"type": "error", "detail": f"You are now {restriction} , cannot send messages"})
             return
         
         message = await self.save_message(text)

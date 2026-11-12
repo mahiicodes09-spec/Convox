@@ -31,6 +31,12 @@ import {
   X,
 } from "lucide-react";
 import api from "../services/api";
+import {
+  getApiErrorMessage,
+  getChannelServerId,
+  getNextCursor,
+  mergeMessagesChronologically,
+} from "../utils/apiHelpers";
 
 const navigationItems = [
   { label: "Dashboard", href: "#dashboard", Icon: LayoutDashboard },
@@ -68,51 +74,6 @@ const communityTemplates = [
     description: "A private-feeling space to keep up with your friends.",
   },
 ];
-
-/**
- * Returns a readable message for Axios and network errors without hiding failures.
- * API errors often include a `detail` field; network errors instead use `message`.
- */
-function getApiErrorMessage(error, fallback) {
-  const detail = error.response?.data?.detail || error.response?.data?.message;
-  return typeof detail === "string" ? detail : error.message || fallback;
-}
-
-function getChannelServerId(channel) {
-  const server = channel?.server ?? channel?.server_id;
-  if (server && typeof server === "object") {
-    return server.id == null ? null : String(server.id);
-  }
-  return server == null ? null : String(server);
-}
-
-function getNextCursor(next) {
-  if (!next) {
-    return "";
-  }
-  const cursor = new URL(next, window.location.origin).searchParams.get(
-    "cursor",
-  );
-  if (!cursor) {
-    throw new Error("The message pagination link did not contain a cursor.");
-  }
-  return cursor;
-}
-
-function mergeMessagesChronologically(existing, incoming) {
-  const messagesById = new Map(
-    existing.map((message) => [String(message.id), message]),
-  );
-  incoming.forEach((message) => {
-    if (!messagesById.has(String(message.id))) {
-      messagesById.set(String(message.id), message);
-    }
-  });
-  return [...messagesById.values()].sort(
-    (left, right) =>
-      Date.parse(left.created_at) - Date.parse(right.created_at),
-  );
-}
 
 /**
  * Shows a signed-in user's real backend avatar or a neutral initials placeholder.
@@ -236,6 +197,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
   // Community, channel, and message state is separate so each API section can
   // show its own loading and error state without blocking the whole dashboard.
   const [servers, setServers] = useState([]);
+  const [serversRefreshKey, setServersRefreshKey] = useState(0);
   const [selectedServerId, setSelectedServerId] = useState("");
   const [channels, setChannels] = useState([]);
   // Incrementing this value re-runs the existing channel-fetching effect after
@@ -397,7 +359,7 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
     return () => {
       active = false;
     };
-  }, [handleRequestError]);
+  }, [handleRequestError, serversRefreshKey]);
 
   // GET /servers/{id}/channels/ loads channels only for the selected community.
   // The cleanup flag ignores an older response if the user selects another one.
@@ -1578,11 +1540,15 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
                 Loading your communities...
               </div>
             ) : serversError ? (
-              <div
-                role="alert"
-                className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
-              >
-                {serversError}
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                <p role="alert">{serversError}</p>
+                <button
+                  type="button"
+                  onClick={() => setServersRefreshKey((key) => key + 1)}
+                  className="mt-3 rounded-lg border border-red-300 px-3 py-2 font-semibold hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                >
+                  Try loading communities again
+                </button>
               </div>
             ) : filteredServers.length ? (
               <div className="grid gap-3 sm:grid-cols-2">
