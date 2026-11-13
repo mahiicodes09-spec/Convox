@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+const STAR_COLORS = ["#ffffff", "#d4d4d8", "#a1a1aa"];
 const MAX_STARS = 20;
 const STAR_LIFETIME = 850;
 
@@ -47,6 +48,7 @@ export default function CursorStarTrail() {
         y: event.clientY + (Math.random() - 0.5) * 10,
         size: 7 + Math.random() * 7,
         opacity: 0.5 + Math.random() * 0.4,
+        color: STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)],
       };
 
       setStars((current) => [...current.slice(-(MAX_STARS - 1)), star]);
@@ -100,6 +102,7 @@ export default function CursorStarTrail() {
             top: star.y,
             width: star.size,
             height: star.size,
+            color: star.color,
             opacity: star.opacity,
           }}
         >

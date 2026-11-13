@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
+import ReCAPTCHA from "react-google-recaptcha";
 import api from "../services/api";
 import yappyHeading from "../assets/images/yappyheading.svg";
 import yappyLogo from "../assets/images/yappy-logo.svg";
@@ -12,11 +13,14 @@ import "./LoginPage.css";
 export default function LoginPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const recaptchaRef = useRef(null);
 
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [errors, setErrors] = useState({});
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaError, setCaptchaError] = useState("");
 
   const [form, setForm] = useState({
     email: "",
@@ -104,13 +108,20 @@ export default function LoginPage() {
     return;
   }
 
+  if (!captchaToken) {
+    setCaptchaError("Please complete the reCAPTCHA checkbox.");
+    return;
+  }
+
   setLoading(true);
   setErrors({});
+  setCaptchaError("");
 
   try {
     const response = await api.post("/auth/login/", {
       email: form.email.trim(),
       password: form.password,
+      captcha_token: captchaToken,
     });
 
     const accessToken = response.data.access;
@@ -131,17 +142,29 @@ export default function LoginPage() {
  
   } catch (err) {
     const data = err.response?.data;
+    const backendMessage =
+      data?.detail || data?.message || data?.non_field_errors?.[0];
+    const isCaptchaError =
+      Boolean(data?.captcha_token || data?.captcha || data?.recaptcha) ||
+      (typeof backendMessage === "string" &&
+        /captcha|recaptcha/i.test(backendMessage));
 
     const message =
-      data?.detail ||
-      data?.message ||
-      data?.non_field_errors?.[0] ||
+      backendMessage ||
       data?.email?.[0] ||
       "Unable to sign in. Please check your credentials and try again.";
 
-    setErrors({ form: message });
+    if (isCaptchaError) {
+      setCaptchaError(
+        "reCAPTCHA verification failed. Please complete it again and retry.",
+      );
+    } else {
+      setErrors({ form: message });
+    }
   } finally {
     setLoading(false);
+    setCaptchaToken("");
+    recaptchaRef.current?.reset();
   }
 }
   return (
@@ -320,10 +343,38 @@ export default function LoginPage() {
             )}
           </div>
 
+          <div className="max-w-full overflow-x-auto">
+            <div className="flex justify-center">
+              <ReCAPTCHA
+                ref={recaptchaRef}
+                sitekey={import.meta.env.VITE_RECAPTCHA_SITE_KEY}
+                onChange={(token) => {
+                  setCaptchaToken(token || "");
+                  if (token) setCaptchaError("");
+                }}
+                onExpired={() => {
+                  setCaptchaToken("");
+                  setCaptchaError("reCAPTCHA expired. Please complete it again.");
+                  recaptchaRef.current?.reset();
+                }}
+              />
+            </div>
+            {captchaError && (
+              <p role="alert" className="mt-2 text-center text-sm text-red-600">
+                {captchaError}
+              </p>
+            )}
+            {!captchaError && !captchaToken && (
+              <p className="mt-2 text-center text-sm text-slate-500">
+                Complete reCAPTCHA to enable login.
+              </p>
+            )}
+          </div>
+
           {/* Login button */}
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !captchaToken}
             className="w-full rounded-lg bg-indigo-600 py-3 font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? "Please wait..." : "Log In"}
