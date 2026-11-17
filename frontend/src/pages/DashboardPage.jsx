@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Bell,
   BookOpen,
@@ -52,6 +52,7 @@ const navigationItems = [
   { label: "My communities", href: "#my-communities", Icon: UsersRound },
   { label: "Discover", href: "#discover", Icon: Compass },
   { label: "Messages", href: "#messages", Icon: MessageCircle },
+  { label: "Direct Messages", href: "/dashboard/direct-messages", Icon: Send },
   { label: "Settings", href: "#settings", Icon: Settings },
 ];
 
@@ -1495,7 +1496,22 @@ export default function DashboardPage({ profile: authenticatedProfile }) {
               pending
             </span>
           </button>
-          {navigationItems.slice(4).map(({ label, href, Icon }) => (
+          {navigationItems.slice(4, 5).map(({ label, href, Icon }) => (
+            <Link
+              key={label}
+              to={href}
+              onClick={() => setActiveNav(label)}
+              className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                activeNav === label
+                  ? "bg-neutral-950 text-white"
+                  : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950"
+              }`}
+            >
+              <Icon size={17} />
+              {label}
+            </Link>
+          ))}
+          {navigationItems.slice(5).map(({ label, href, Icon }) => (
             <a
               key={label}
               href={href}

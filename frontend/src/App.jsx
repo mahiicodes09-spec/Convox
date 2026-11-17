@@ -14,6 +14,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import DashboardPage from "./pages/DashboardPage";
 import CommunityWorkspacePage from "./pages/CommunityWorkspacePage";
+import DirectMessagesPage from "./pages/DirectMessagesPage";
 import CursorStarTrail from "./components/CursorStarTrail";
 
 /**
@@ -134,6 +135,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               {(profile) => <DashboardPage profile={profile} />}
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard/direct-messages"
+          element={
+            <ProtectedRoute>
+              {() => <DirectMessagesPage />}
             </ProtectedRoute>
           }
         />
