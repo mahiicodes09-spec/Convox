@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
+import ReCAPTCHA from "react-google-recaptcha";
 import api from "../services/api";
 import yappyHeading from "../assets/images/yappyheading.svg";
 import yappyLogo from "../assets/images/yappy-logo.svg";
@@ -72,12 +73,15 @@ return ( <div> <label
 
 export default function SignupPage() {
 const navigate = useNavigate();
+const recaptchaRef = useRef(null);
 
 const [showPassword, setShowPassword] = useState(false);
 const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 const [errors, setErrors] = useState({});
 const [success, setSuccess] = useState("");
 const [loading, setLoading] = useState(false);
+const [captchaToken, setCaptchaToken] = useState("");
+const [captchaError, setCaptchaError] = useState("");
 
 const [form, setForm] = useState({
 name: "",
@@ -178,7 +182,13 @@ if (!validateForm()) {
   return;
 }
 
+if (!captchaToken) {
+  setCaptchaError("Please complete the reCAPTCHA checkbox.");
+  return;
+}
+
 setLoading(true);
+setCaptchaError("");
 
 try {
   await api.post("/auth/register/", {
@@ -186,6 +196,7 @@ try {
     display_name: form.name.trim(),
     password: form.password,
     password2: form.confirmPassword,
+    captcha_token: captchaToken,
   });
 
   navigate("/verify-email", {
@@ -193,24 +204,37 @@ try {
   });
 } catch (err) {
   const data = err.response?.data;
+  const backendMessage =
+    data?.detail || data?.message || data?.non_field_errors?.[0];
+  const isCaptchaError =
+    Boolean(data?.captcha_token || data?.captcha || data?.recaptcha) ||
+    (typeof backendMessage === "string" &&
+      /captcha|recaptcha/i.test(backendMessage));
 
   const message =
-    data?.detail ||
-    data?.message ||
+    backendMessage ||
     data?.email?.[0] ||
     data?.display_name?.[0] ||
     data?.password?.[0] ||
     data?.password2?.[0] ||
     "Registration failed. Please check your details and try again.";
 
-  setErrors({
-    form:
-      typeof message === "string"
-        ? message
-        : "Registration failed. Please try again.",
-  });
+  if (isCaptchaError) {
+    setCaptchaError(
+      "reCAPTCHA verification failed. Please complete it again and retry.",
+    );
+  } else {
+    setErrors({
+      form:
+        typeof message === "string"
+          ? message
+          : "Registration failed. Please try again.",
+    });
+  }
 } finally {
   setLoading(false);
+  setCaptchaToken("");
+  recaptchaRef.current?.reset();
 }
 
 
@@ -371,10 +395,38 @@ return (
         onChange={handleChange}
       />
 
+      <div className="max-w-full overflow-x-auto">
+        <div className="flex justify-center">
+          <ReCAPTCHA
+            ref={recaptchaRef}
+            sitekey={import.meta.env.VITE_RECAPTCHA_SITE_KEY}
+            onChange={(token) => {
+              setCaptchaToken(token || "");
+              if (token) setCaptchaError("");
+            }}
+            onExpired={() => {
+              setCaptchaToken("");
+              setCaptchaError("reCAPTCHA expired. Please complete it again.");
+              recaptchaRef.current?.reset();
+            }}
+          />
+        </div>
+        {captchaError && (
+          <p role="alert" className="mt-2 text-center text-sm text-red-600">
+            {captchaError}
+          </p>
+        )}
+        {!captchaError && !captchaToken && (
+          <p className="mt-2 text-center text-sm text-slate-500">
+            Complete reCAPTCHA to enable account creation.
+          </p>
+        )}
+      </div>
+
       {/* Submit button */}
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || !captchaToken}
         className="w-full rounded-lg bg-indigo-600 py-3 font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Creating account..." : "Create Account"}

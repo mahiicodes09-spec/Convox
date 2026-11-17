@@ -127,32 +127,6 @@
   }
 }
 
-.cursor-star-trail {
-  position: fixed;
-  z-index: 1000;
-  inset: 0;
-  pointer-events: none;
-}
-
-.cursor-star {
-  position: fixed;
-  display: block;
-  pointer-events: none;
-  animation: cursor-star-fade 850ms ease-out forwards;
-}
-
-@keyframes cursor-star-fade {
-  from {
-    opacity: 0.9;
-    transform: translate(-50%, -50%) scale(1) rotate(0);
-  }
-
-  to {
-    opacity: 0;
-    transform: translate(-50%, -60%) scale(0.15) rotate(35deg);
-  }
-}
-
 @media (max-width: 840px) {
   .login-character {
     right: 20px;
@@ -210,8 +184,7 @@
   .login-character,
   .signup-character,
   .forgot-password-character,
-  .auth-card,
-  .cursor-star {
+  .auth-card {
     animation: none;
     will-change: auto;
   }
