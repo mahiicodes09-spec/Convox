@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Mail, MessageCircle, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import api from "../services/api";
+import yappyHeading from "../assets/images/yappyheading.svg";
+import yappyLogo from "../assets/images/yappy-logo.svg";
+import forgotPasswordCharacter from "../assets/images/forgotpwdch.svg";
+import AuthPageBackground from "../components/AuthPageBackground";
+import CursorStarTrail from "../components/CursorStarTrail";
+import "./LoginPage.css";
 
 export default function ForgotPasswordPage() {
 const [email, setEmail] = useState("");
@@ -160,20 +166,24 @@ try {
 
 }
 
-return ( <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10"> <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-lg sm:p-10"> <Link
+return (
+  <main className="auth-page relative isolate flex min-h-screen items-center justify-center bg-[#080808] px-4 py-10 sm:px-6">
+    <AuthPageBackground
+      character={forgotPasswordCharacter}
+      characterClassName="forgot-password-character"
+    />
+    <section className="auth-card relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-2xl shadow-black/30 sm:p-10">
+      <Link
        to="/login"
        className="mb-8 flex items-center justify-center gap-3"
-     > <span className="rounded-xl bg-indigo-600 p-3 text-white"> <MessageCircle size={25} /> </span>
-
-
-      <span className="text-2xl font-bold text-slate-900">
-        Smart Community
-      </span>
+     >
+      <img src={yappyLogo} alt="" className="yappy-mark" />
+      <img
+        src={yappyHeading}
+        alt="Yappy"
+        className="h-auto w-[104px] sm:w-[112px]"
+      />
     </Link>
-
-    <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
-      <Mail size={27} />
-    </div>
 
     {step === 1 && (
       <>
@@ -452,8 +462,9 @@ return ( <main className="flex min-h-screen items-center justify-center bg-slate
         Back to Login
       </Link>
     )}
-  </section>
-</main>
+    </section>
+    <CursorStarTrail />
+  </main>
 
 
 );

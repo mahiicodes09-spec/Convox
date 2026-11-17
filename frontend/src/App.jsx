@@ -14,6 +14,8 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import DashboardPage from "./pages/DashboardPage";
 import CommunityWorkspacePage from "./pages/CommunityWorkspacePage";
+import DirectMessagesPage from "./pages/DirectMessagesPage";
+import CursorStarTrail from "./components/CursorStarTrail";
 
 /**
  * Checks the saved access token before showing protected content.
@@ -26,6 +28,7 @@ function ProtectedRoute({ children }) {
     accessToken ? "checking" : "unauthenticated",
   );
   const [profile, setProfile] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (!accessToken) {
@@ -49,7 +52,7 @@ function ProtectedRoute({ children }) {
           return;
         }
 
-        if (error.response?.status === 401 || error.response?.status === 403) {
+        if (error.response?.status === 401) {
           localStorage.removeItem("accessToken");
           localStorage.removeItem("refreshToken");
           setStatus("unauthenticated");
@@ -62,7 +65,7 @@ function ProtectedRoute({ children }) {
     return () => {
       active = false;
     };
-  }, [accessToken]);
+  }, [accessToken, retryCount]);
 
   if (status === "unauthenticated") {
     return <Navigate to="/login" replace />;
@@ -71,9 +74,21 @@ function ProtectedRoute({ children }) {
   if (status === "error") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
-        <p role="alert" className="text-sm text-red-700">
-          Unable to verify your session. Please try again.
-        </p>
+        <section className="text-center">
+          <p role="alert" className="text-sm text-red-700">
+            Unable to verify your session. Please try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setStatus("checking");
+              setRetryCount((count) => count + 1);
+            }}
+            className="mt-4 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            Retry
+          </button>
+        </section>
       </main>
     );
   }
@@ -86,7 +101,12 @@ function ProtectedRoute({ children }) {
     );
   }
 
-  return typeof children === "function" ? children(profile) : children;
+  return (
+    <>
+      {typeof children === "function" ? children(profile) : children}
+      <CursorStarTrail />
+    </>
+  );
 }
 
 export default function App() {
@@ -115,6 +135,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               {(profile) => <DashboardPage profile={profile} />}
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard/direct-messages"
+          element={
+            <ProtectedRoute>
+              {() => <DirectMessagesPage />}
             </ProtectedRoute>
           }
         />

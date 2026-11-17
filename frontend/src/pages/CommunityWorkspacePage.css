@@ -9,16 +9,74 @@
   --workspace-text: var(--sc-text);
   --workspace-muted: var(--sc-text-muted);
   --workspace-subtle: var(--sc-text-muted);
+  --workspace-wave-back: rgb(255 255 255 / 5%);
+  --workspace-wave-middle: rgb(255 255 255 / 8%);
+  --workspace-wave-front: rgb(255 255 255 / 11%);
+  position: relative;
+  isolation: isolate;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
-  background: var(--workspace-chat);
+  background:
+    radial-gradient(ellipse at 68% 7%, rgb(255 255 255 / 4%), transparent 36%),
+    var(--workspace-chat) !important;
   color: var(--workspace-text);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   font-size: 15px;
   line-height: 1.5;
+}
+
+.community-workspace__backdrop {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  background-image:
+    radial-gradient(circle, rgb(255 255 255 / 42%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(255 255 255 / 28%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(255 255 255 / 34%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(255 255 255 / 23%) 0 1px, transparent 1.8px);
+  background-position: 8% 17%, 31% 29%, 68% 12%, 87% 43%;
+  background-size: 150px 180px, 230px 250px, 310px 220px, 190px 280px;
+  pointer-events: none;
+}
+
+.community-workspace__backdrop::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 72%;
+  content: "";
+  background: radial-gradient(ellipse at 70% 22%, rgb(255 255 255 / 4%), transparent 36%);
+  animation: workspace-star-twinkle 7s ease-in-out infinite alternate;
+}
+
+.community-workspace__wave {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 200%;
+  animation: workspace-wave-drift 88s linear infinite;
+  will-change: transform;
+}
+
+.community-workspace__wave--back {
+  z-index: 1;
+  height: clamp(180px, 31vh, 310px);
+  animation-duration: 104s;
+}
+
+.community-workspace__wave--middle {
+  z-index: 2;
+  height: clamp(145px, 25vh, 245px);
+  animation-duration: 86s;
+}
+
+.community-workspace__wave--front {
+  z-index: 3;
+  height: clamp(110px, 19vh, 185px);
+  animation-duration: 72s;
 }
 
 .community-workspace__community-rail {
@@ -155,8 +213,7 @@
 .community-workspace__community-info a,
 .community-workspace__community-info button,
 .community-workspace__channel-heading a,
-.community-workspace__channel-heading button,
-.community-workspace__account-link {
+.community-workspace__channel-heading button {
   display: inline-flex;
   margin-top: 9px;
   color: #dedede;
@@ -169,8 +226,7 @@
 .community-workspace__community-info a:hover,
 .community-workspace__community-info button:hover,
 .community-workspace__channel-heading a:hover,
-.community-workspace__channel-heading button:hover,
-.community-workspace__account-link:hover {
+.community-workspace__channel-heading button:hover {
   color: #fff;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -237,8 +293,44 @@
 }
 
 .community-workspace__profile-panel {
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   border-color: #292929;
   background: #242424;
+}
+
+.community-workspace__logout-button {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  color: var(--workspace-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
+}
+
+.community-workspace__logout-button:hover:not(:disabled) {
+  color: var(--workspace-text);
+  background: var(--workspace-sidebar-hover);
+  border-color: var(--workspace-border);
+}
+
+.community-workspace__logout-button:focus-visible {
+  outline: 2px solid var(--workspace-text);
+  outline-offset: 2px;
+}
+
+.community-workspace__logout-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .community-workspace__profile-panel .rounded-full {
@@ -253,10 +345,11 @@
 
 .community-workspace__chat-header {
   min-height: 58px;
-  padding: 0 22px;
-  background: var(--workspace-chat);
+  padding: 0 104px 0 22px;
+  background: color-mix(in srgb, var(--workspace-sidebar) 90%, transparent);
   border-color: #292929;
   box-shadow: 0 1px 0 rgb(0 0 0 / 12%);
+  backdrop-filter: blur(12px);
 }
 
 .community-workspace__chat-header h2 {
@@ -287,11 +380,14 @@
 }
 
 .community-workspace main {
-  background: var(--workspace-chat);
+  position: relative;
+  z-index: 1;
+  background: transparent;
   color: var(--workspace-text);
 }
 
 .community-workspace__messages {
+  background: transparent;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   scrollbar-color: #212121 transparent;
@@ -332,9 +428,18 @@
   align-items: center;
   justify-content: center;
   color: #f1f1f1;
-  background: #414141;
-  border: 1px solid #555;
+  background: #f4f4f5;
+  border: 1px solid #fff;
   border-radius: 16px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+}
+
+.community-workspace__welcome-mark img {
+  display: block;
+  width: 40px;
+  height: 34px;
+  object-fit: contain;
+  animation: workspace-character-float 6.5s ease-in-out infinite;
 }
 
 .community-workspace__welcome-eyebrow {
@@ -559,8 +664,9 @@
   align-items: flex-end;
   gap: 10px;
   padding: 14px 20px 20px;
-  background: var(--workspace-chat);
+  background: color-mix(in srgb, var(--workspace-chat) 92%, transparent);
   border-color: #292929;
+  backdrop-filter: blur(12px);
 }
 
 .community-workspace__composer-input {
@@ -699,9 +805,9 @@
 }
 
 :root[data-theme="light"] .community-workspace {
-  --workspace-rail: #111111;
-  --workspace-sidebar: var(--sc-surface);
-  --workspace-sidebar-hover: var(--sc-surface-muted);
+  --workspace-rail: #e8e7e5;
+  --workspace-sidebar: #e8e7e5;
+  --workspace-sidebar-hover: #e6e4e1;
   --workspace-chat: var(--sc-background);
   --workspace-panel: var(--sc-surface);
   --workspace-input: var(--sc-surface);
@@ -709,6 +815,66 @@
   --workspace-text: var(--sc-text);
   --workspace-muted: var(--sc-text-muted);
   --workspace-subtle: var(--sc-text-muted);
+  --workspace-wave-back: #e5e3e0;
+  --workspace-wave-middle: #dad8d5;
+  --workspace-wave-front: #cfcdca;
+  background: #f3f2f0 !important;
+}
+
+:root[data-theme="light"] .community-workspace__backdrop {
+  background-image:
+    radial-gradient(circle, rgb(69 69 69 / 34%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(69 69 69 / 23%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(69 69 69 / 28%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(69 69 69 / 19%) 0 1px, transparent 1.8px);
+}
+
+:root[data-theme="light"] .community-workspace__backdrop::before {
+  background: none;
+}
+
+:root[data-theme="light"] .community-workspace__community-rail {
+  background-color: #e8e7e5;
+  border-color: #dad9d6;
+}
+
+:root[data-theme="light"] .community-workspace__community-rail a,
+:root[data-theme="light"] .community-workspace__community-rail button {
+  color: #454545;
+  border-color: #dad9d6;
+  background-color: #ffffff;
+}
+
+:root[data-theme="light"] .community-workspace__community-rail a:hover,
+:root[data-theme="light"] .community-workspace__community-rail button:hover {
+  color: #202020;
+  background-color: #e6e4e1;
+}
+
+:root[data-theme="light"] .community-workspace__community-rail .community-workspace__brand,
+:root[data-theme="light"] .community-workspace__community-rail .community-workspace__brand:hover {
+  color: #ffffff;
+  border-color: #252525;
+  background-color: #252525;
+}
+
+:root[data-theme="light"] .community-workspace__community-rail button[aria-current="page"] {
+  color: #ffffff;
+  border-color: #252525;
+  background-color: #252525;
+}
+
+:root[data-theme="light"] .community-workspace__community-rail button[aria-current="page"]::before {
+  background-color: #252525;
+}
+
+:root[data-theme="light"] .community-workspace__community-rail a:focus-visible,
+:root[data-theme="light"] .community-workspace__community-rail button:focus-visible {
+  outline-color: #454545;
+}
+
+:root[data-theme="light"] .community-workspace__rail-divider {
+  background-color: #dad9d6;
 }
 
 :root[data-theme="light"] .community-workspace__channel-sidebar,
@@ -716,8 +882,22 @@
 :root[data-theme="light"] .community-workspace__community-info,
 :root[data-theme="light"] .community-workspace__channel-sidebar [id="workspace-channel-navigation"] {
   color: var(--sc-text);
-  background-color: var(--sc-surface);
+  background-color: #e8e7e5 !important;
   border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace__community-info a,
+:root[data-theme="light"] .community-workspace__community-info button,
+:root[data-theme="light"] .community-workspace__channel-heading a,
+:root[data-theme="light"] .community-workspace__channel-heading button {
+  color: #454545;
+}
+
+:root[data-theme="light"] .community-workspace__community-info a:hover,
+:root[data-theme="light"] .community-workspace__community-info button:hover,
+:root[data-theme="light"] .community-workspace__channel-heading a:hover,
+:root[data-theme="light"] .community-workspace__channel-heading button:hover {
+  color: #202020;
 }
 
 :root[data-theme="light"] .community-workspace__community-header h1,
@@ -734,17 +914,40 @@
   color: var(--sc-text-muted);
 }
 
+:root[data-theme="light"] .community-workspace__profile-panel {
+  background: #e8e7e5;
+  border-color: #dad9d6;
+}
+
+:root[data-theme="light"] .community-workspace__logout-button {
+  color: #3f3f46;
+}
+
+:root[data-theme="light"] .community-workspace__logout-button:hover:not(:disabled) {
+  color: #111113;
+  background: #e6e4e1;
+  border-color: #dad9d6;
+}
+
 :root[data-theme="light"] .community-workspace__channel-button[aria-current="page"] {
-  background-color: var(--sc-surface-muted);
+  color: #ffffff;
+  background-color: #252525;
+}
+
+:root[data-theme="light"] .community-workspace__channel-button[aria-current="page"] svg {
+  color: #ffffff;
 }
 
 :root[data-theme="light"] .community-workspace__chat-header,
-:root[data-theme="light"] .community-workspace main,
-:root[data-theme="light"] .community-workspace__messages,
 :root[data-theme="light"] .community-workspace__composer {
   color: var(--sc-text);
-  background-color: var(--sc-background);
+  background-color: #f3f2f0 !important;
   border-color: var(--sc-border);
+}
+
+:root[data-theme] .community-workspace main,
+:root[data-theme] .community-workspace__messages {
+  background-color: transparent !important;
 }
 
 :root[data-theme="light"] .community-workspace__chat-header h2,
@@ -767,24 +970,50 @@
 :root[data-theme="light"] .community-workspace__welcome-mark,
 :root[data-theme="light"] .community-workspace__welcome-card,
 :root[data-theme="light"] .community-workspace__welcome-card-icon,
-:root[data-theme="light"] .community-workspace__welcome-action,
 :root[data-theme="light"] .community-workspace__history-control button {
   color: var(--sc-text);
   background-color: var(--sc-surface);
   border-color: var(--sc-border);
 }
 
+:root[data-theme="light"] .community-workspace__welcome-mark {
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .community-workspace__welcome-action {
+  color: #ffffff;
+  background-color: #252525;
+  border-color: #252525;
+}
+
+:root[data-theme="light"] .community-workspace__welcome-action:hover {
+  color: #202020;
+  background-color: #e6e4e1;
+  border-color: #dad9d6;
+}
+
 :root[data-theme="light"] .community-workspace__welcome-card:hover,
-:root[data-theme="light"] .community-workspace__welcome-action:hover,
 :root[data-theme="light"] .community-workspace__history-control button:hover:not(:disabled),
 :root[data-theme="light"] .community-workspace__message:hover {
-  background-color: var(--sc-surface-muted);
+  background-color: #e6e4e1;
   border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace__history-control button {
+  color: #ffffff;
+  background-color: #252525;
+  border-color: #252525;
+}
+
+:root[data-theme="light"] .community-workspace__history-control button:hover:not(:disabled) {
+  color: #202020;
+  background-color: #e6e4e1;
+  border-color: #dad9d6;
 }
 
 :root[data-theme="light"] .community-workspace__message button:hover {
   color: var(--sc-text);
-  background-color: var(--sc-surface-muted);
+  background-color: #e6e4e1;
 }
 
 :root[data-theme="light"] .community-workspace__composer-input,
@@ -794,6 +1023,14 @@
   color: var(--sc-text);
   background-color: var(--sc-input);
   border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace__composer-input:focus,
+:root[data-theme="light"] .community-workspace__dialog input:focus,
+:root[data-theme="light"] .community-workspace__dialog textarea:focus,
+:root[data-theme="light"] .community-workspace__dialog select:focus {
+  border-color: #666666;
+  box-shadow: 0 0 0 2px rgb(32 32 32 / 10%);
 }
 
 :root[data-theme="light"] .community-workspace__send-button,
@@ -809,6 +1046,16 @@
   background-color: var(--sc-primary-hover);
 }
 
+:root[data-theme="light"] .community-workspace__dialog button[class*="border-neutral-300"] {
+  color: #202020;
+  background-color: #ffffff;
+  border-color: #dad9d6;
+}
+
+:root[data-theme="light"] .community-workspace__dialog button[class*="border-neutral-300"]:hover {
+  background-color: #e6e4e1;
+}
+
 :root[data-theme="light"] .community-workspace__dialog,
 :root[data-theme="light"] .community-workspace__success,
 :root[data-theme="light"] .community-workspace [class*="bg-neutral-100"],
@@ -816,6 +1063,10 @@
   color: var(--sc-text);
   background-color: var(--sc-surface);
   border-color: var(--sc-border);
+}
+
+:root[data-theme="light"] .community-workspace__overlay {
+  background-color: rgb(32 32 32 / 38%);
 }
 
 :root[data-theme="light"] .community-workspace__dialog header,
@@ -857,6 +1108,10 @@
   border-color: var(--sc-border);
 }
 
+:root[data-theme="light"] .community-workspace [role="alert"] {
+  color: #454545;
+}
+
 :root[data-theme="dark"] .community-workspace {
   --workspace-rail: #111111;
   --workspace-sidebar: #202020;
@@ -868,6 +1123,32 @@
   --workspace-text: #f1f1f1;
   --workspace-muted: #c0c0c0;
   --workspace-subtle: #a6a6a6;
+  --workspace-wave-back: rgb(255 255 255 / 5%);
+  --workspace-wave-middle: rgb(255 255 255 / 8%);
+  --workspace-wave-front: rgb(255 255 255 / 11%);
+  background:
+    radial-gradient(ellipse at 68% 7%, rgb(255 255 255 / 4%), transparent 36%),
+    #111 !important;
+}
+
+:root[data-theme="dark"] .community-workspace__backdrop {
+  background-image:
+    radial-gradient(circle, rgb(255 255 255 / 42%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(255 255 255 / 28%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(255 255 255 / 34%) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgb(255 255 255 / 23%) 0 1px, transparent 1.8px);
+}
+
+:root[data-theme="dark"] .community-workspace__backdrop::before {
+  background: radial-gradient(ellipse at 70% 22%, rgb(255 255 255 / 4%), transparent 36%);
+}
+
+:root[data-theme="dark"] .community-workspace__chat-header {
+  background: color-mix(in srgb, var(--workspace-sidebar) 90%, transparent) !important;
+}
+
+:root[data-theme="dark"] .community-workspace__composer {
+  background: color-mix(in srgb, var(--workspace-chat) 92%, transparent) !important;
 }
 
 :root[data-theme="dark"] .community-workspace [class~="bg-white"],
@@ -992,7 +1273,7 @@
   }
 
   .community-workspace__chat-header {
-    padding-right: 12px;
+    padding-right: 104px;
     padding-left: 12px;
   }
 
@@ -1008,7 +1289,7 @@
 @media (max-width: 480px) {
   .community-workspace__chat-header {
     gap: 8px;
-    padding-right: 9px;
+    padding-right: 104px;
     padding-left: 9px;
   }
 
@@ -1077,5 +1358,43 @@
   .community-workspace *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .community-workspace__wave,
+  .community-workspace__backdrop::before,
+  .community-workspace__welcome-mark img {
+    animation: none;
+    will-change: auto;
+  }
+}
+
+@keyframes workspace-wave-drift {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes workspace-character-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes workspace-star-twinkle {
+  from {
+    opacity: 0.64;
+  }
+
+  to {
+    opacity: 1;
   }
 }

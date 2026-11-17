@@ -22,6 +22,7 @@ import {
   Hash,
   Info,
   LoaderCircle,
+  LogOut,
   Menu,
   MessageCircle,
   Paperclip,
@@ -39,30 +40,18 @@ import {
   X,
 } from "lucide-react";
 import api from "../services/api";
+import {
+  getApiErrorMessage,
+  getChannelServerId,
+  getNextCursor,
+  mergeMessagesChronologically,
+} from "../utils/apiHelpers";
+import {
+  getCommunityImage,
+  readCommunityImageAssignments,
+} from "../utils/communityImages";
+import workspaceCharacter from "../assets/images/dashboardrightside.svg";
 import "./CommunityWorkspacePage.css";
-
-function getApiErrorMessage(error, fallback) {
-  if (error.response?.status === 429) {
-    const retryAfter = error.response.headers?.["retry-after"];
-    if (retryAfter) {
-      return `Rate limit reached. Please wait ${retryAfter} second${retryAfter === "1" ? "" : "s"} before trying again.`;
-    }
-    return "You are making requests too quickly. Please wait a moment and try again.";
-  }
-  if (error.response?.status === 403) {
-    const detail = error.response?.data?.detail || error.response?.data?.message;
-    return typeof detail === "string" ? detail : "You do not have permission to perform this action.";
-  }
-  const detail = error.response?.data?.detail || error.response?.data?.message;
-  if (typeof detail === "string") return detail;
-  if (typeof error.response?.data === "object" && error.response?.data !== null) {
-    const firstKey = Object.keys(error.response.data)[0];
-    const val = error.response.data[firstKey];
-    if (Array.isArray(val) && typeof val[0] === "string") return `${firstKey}: ${val[0]}`;
-    if (typeof val === "string") return `${firstKey}: ${val}`;
-  }
-  return error.message || fallback;
-}
 
 function formatBytes(bytes) {
   if (bytes == null || isNaN(bytes)) return "";
@@ -119,40 +108,6 @@ function getChannelWebSocketUrl(channelId, token) {
   return `${wsProtocol}//${wsHost}/ws/channels/${encodeURIComponent(channelId)}/?token=${encodeURIComponent(token)}`;
 }
 
-function getChannelServerId(channel) {
-  const server = channel?.server ?? channel?.server_id;
-  if (server && typeof server === "object") {
-    return server.id == null ? null : String(server.id);
-  }
-  return server == null ? null : String(server);
-}
-
-function getNextCursor(next) {
-  if (!next) {
-    return "";
-  }
-  const cursor = new URL(next, window.location.origin).searchParams.get(
-    "cursor",
-  );
-  if (!cursor) {
-    throw new Error("The message pagination link did not contain a cursor.");
-  }
-  return cursor;
-}
-
-function mergeMessagesChronologically(existing, incoming) {
-  const messagesById = new Map(
-    existing.map((message) => [String(message.id), message]),
-  );
-  incoming.forEach((message) => {
-    messagesById.set(String(message.id), message);
-  });
-  return [...messagesById.values()].sort(
-    (left, right) =>
-      Date.parse(left.created_at) - Date.parse(right.created_at),
-  );
-}
-
 function canModifyMessage(message, profile) {
   const authorId =
     typeof message?.author === "object" ? message?.author?.id : message?.author;
@@ -176,6 +131,8 @@ export default function CommunityWorkspacePage({ profile }) {
   const { serverId = "" } = useParams();
   const navigate = useNavigate();
   const [servers, setServers] = useState([]);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [communityImageAssignments] = useState(readCommunityImageAssignments);
   const [serversLoading, setServersLoading] = useState(true);
   const [serversError, setServersError] = useState("");
   const [serversRefreshKey, setServersRefreshKey] = useState(0);
@@ -335,7 +292,7 @@ export default function CommunityWorkspacePage({ profile }) {
 
   const handleRequestError = useCallback(
     (error, setError, fallback) => {
-      if (error.response?.status === 401 || error.response?.status === 403) {
+      if (error.response?.status === 401) {
         localStorage.removeItem("accessToken");
         localStorage.removeItem("refreshToken");
         navigate("/login", { replace: true });
@@ -745,10 +702,6 @@ export default function CommunityWorkspacePage({ profile }) {
         if (debouncedMessageSearch) {
           params.search = debouncedMessageSearch;
         }
-        if (messageAuthorFilter) {
-          params.author = messageAuthorFilter;
-        }
-
         const response = await api.get(
           `/channels/${encodeURIComponent(channelId)}/messages/`,
           { params },
@@ -800,7 +753,6 @@ export default function CommunityWorkspacePage({ profile }) {
   }, [
     debouncedMessageSearch,
     handleRequestError,
-    messageAuthorFilter,
     messagesRefreshKey,
     selectedChannel,
     serverId,
@@ -902,8 +854,7 @@ export default function CommunityWorkspacePage({ profile }) {
       !selectedChannel ||
       !serverId ||
       messagesLoading ||
-      debouncedMessageSearch ||
-      messageAuthorFilter
+      debouncedMessageSearch
     ) {
       return undefined;
     }
@@ -973,7 +924,6 @@ export default function CommunityWorkspacePage({ profile }) {
     };
   }, [
     debouncedMessageSearch,
-    messageAuthorFilter,
     messagesLoading,
     selectedChannel,
     serverId,
@@ -1673,7 +1623,6 @@ export default function CommunityWorkspacePage({ profile }) {
     try {
       const params = { cursor };
       if (debouncedMessageSearch) params.search = debouncedMessageSearch;
-      if (messageAuthorFilter) params.author = messageAuthorFilter;
 
       const response = await api.get(
         `/channels/${encodeURIComponent(channelId)}/messages/`,
@@ -1890,12 +1839,34 @@ export default function CommunityWorkspacePage({ profile }) {
   }
 
   const displayedMessages = useMemo(
-    () =>
-      messagesServerId === serverId &&
-      messagesChannelId === String(selectedChannel?.id)
-        ? messages
-        : [],
-    [messages, messagesChannelId, messagesServerId, selectedChannel?.id, serverId],
+    () => {
+      if (
+        messagesServerId !== serverId ||
+        messagesChannelId !== String(selectedChannel?.id)
+      ) {
+        return [];
+      }
+
+      if (!messageAuthorFilter) {
+        return messages;
+      }
+
+      return messages.filter((message) => {
+        const author =
+          typeof message.author === "object"
+            ? message.author?.id
+            : message.author;
+        return author != null && String(author) === messageAuthorFilter;
+      });
+    },
+    [
+      messageAuthorFilter,
+      messages,
+      messagesChannelId,
+      messagesServerId,
+      selectedChannel?.id,
+      serverId,
+    ],
   );
   const hasCurrentUserMessage = displayedMessages.some(
     (message) =>
@@ -2005,8 +1976,84 @@ export default function CommunityWorkspacePage({ profile }) {
     setMobileChannelsOpen(true);
   }
 
+  async function handleLogout() {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+    const refreshToken = localStorage.getItem("refreshToken");
+    let logoutError = "";
+
+    try {
+      if (!refreshToken) {
+        throw new Error("No refresh token is available to invalidate.");
+      }
+      await api.post("/auth/logout/", { refresh: refreshToken });
+    } catch (error) {
+      logoutError = getApiErrorMessage(
+        error,
+        "The server could not confirm logout. You have been signed out on this device.",
+      );
+    } finally {
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      navigate("/login", {
+        replace: true,
+        state: logoutError ? { logoutError } : undefined,
+      });
+    }
+  }
+
   return (
     <div className="community-workspace flex h-dvh min-h-[520px] flex-col overflow-hidden bg-neutral-100 text-neutral-950 lg:flex-row">
+      <div className="community-workspace__backdrop" aria-hidden="true">
+        <svg
+          className="community-workspace__wave community-workspace__wave--back"
+          viewBox="0 0 2880 460"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M0 190C240 100 480 280 720 190C960 100 1200 280 1440 190V460H0Z"
+            fill="var(--workspace-wave-back)"
+          />
+          <path
+            d="M0 190C240 100 480 280 720 190C960 100 1200 280 1440 190V460H0Z"
+            fill="var(--workspace-wave-back)"
+            transform="translate(1440)"
+          />
+        </svg>
+        <svg
+          className="community-workspace__wave community-workspace__wave--middle"
+          viewBox="0 0 2880 460"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M0 190C240 125 480 255 720 190C960 125 1200 255 1440 190V460H0Z"
+            fill="var(--workspace-wave-middle)"
+          />
+          <path
+            d="M0 190C240 125 480 255 720 190C960 125 1200 255 1440 190V460H0Z"
+            fill="var(--workspace-wave-middle)"
+            transform="translate(1440)"
+          />
+        </svg>
+        <svg
+          className="community-workspace__wave community-workspace__wave--front"
+          viewBox="0 0 2880 460"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M0 190C240 105 480 275 720 190C960 105 1200 275 1440 190V460H0Z"
+            fill="var(--workspace-wave-front)"
+          />
+          <path
+            d="M0 190C240 105 480 275 720 190C960 105 1200 275 1440 190V460H0Z"
+            fill="var(--workspace-wave-front)"
+            transform="translate(1440)"
+          />
+        </svg>
+      </div>
       <aside
         aria-label="Community navigation"
         className={`community-workspace__community-rail ${
@@ -2068,15 +2115,11 @@ export default function CommunityWorkspacePage({ profile }) {
                     : "border-neutral-200 bg-neutral-50 text-neutral-700 hover:border-neutral-400 hover:bg-neutral-100"
                 }`}
               >
-                {server.icon ? (
-                  <img
-                    src={server.icon}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <UsersRound size={18} aria-hidden="true" />
-                )}
+                <img
+                  src={getCommunityImage(server, communityImageAssignments)}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
               </button>
             );
           })
@@ -2137,6 +2180,8 @@ export default function CommunityWorkspacePage({ profile }) {
 
         <div
           id="workspace-channel-navigation"
+          role="navigation"
+          aria-label="Text channels"
           className={`${
             mobileChannelsOpen ? "flex" : "hidden"
           } absolute left-0 right-0 top-full z-20 max-h-[55vh] flex-col overflow-y-auto border-b border-neutral-200 bg-white shadow-xl lg:static lg:flex lg:max-h-none lg:flex-1 lg:border-0 lg:shadow-none`}
@@ -2204,7 +2249,7 @@ export default function CommunityWorkspacePage({ profile }) {
           )}
 
           <div className="community-workspace__profile-panel mt-auto flex border-t border-neutral-200 p-3">
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-xs font-semibold text-white">
                 {profileName
                   .split(/\s+/)
@@ -2222,12 +2267,16 @@ export default function CommunityWorkspacePage({ profile }) {
                 </span>
               </span>
             </div>
-            <Link
-              to="/dashboard#settings"
-              className="community-workspace__account-link"
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              aria-label="Log out"
+              title="Log out"
+              className="community-workspace__logout-button"
             >
-              Account settings
-            </Link>
+              <LogOut size={17} aria-hidden="true" />
+            </button>
           </div>
         </div>
       </aside>
@@ -2298,6 +2347,7 @@ export default function CommunityWorkspacePage({ profile }) {
                     type="search"
                     value={messageSearchQuery}
                     onChange={(e) => setMessageSearchQuery(e.target.value)}
+                    aria-label={`Search messages in ${selectedChannel.name}`}
                     placeholder={`Search #${selectedChannel.name}...`}
                     className="h-8 w-32 rounded-lg border border-neutral-300 bg-neutral-50 pl-7 pr-6 text-xs text-neutral-900 placeholder:text-neutral-400 transition-all focus:w-48 focus:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 sm:w-44 sm:focus:w-60"
                   />
@@ -2431,7 +2481,7 @@ export default function CommunityWorkspacePage({ profile }) {
                     >
                     <div className="community-workspace__welcome-content">
                       <span className="community-workspace__welcome-mark">
-                        <UsersRound size={28} aria-hidden="true" />
+                        <img src={workspaceCharacter} alt="" />
                       </span>
                       <p className="community-workspace__welcome-eyebrow">
                         Smart Community
@@ -2444,10 +2494,7 @@ export default function CommunityWorkspacePage({ profile }) {
                           `This is the start of your community. Say hello in #${selectedChannel.name} and help make it your own.`}
                       </p>
                       <div className="community-workspace__welcome-grid">
-                        <article
-                          onClick={openInviteFriendsModal}
-                          className="community-workspace__welcome-card cursor-pointer"
-                        >
+                        <article className="community-workspace__welcome-card">
                           <span className="community-workspace__welcome-card-icon">
                             <UserPlus size={20} aria-hidden="true" />
                           </span>

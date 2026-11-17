@@ -8,11 +8,10 @@ class RedisJWTAuthentication(JWTAuthentication):
     def get_validated_token(self, raw_token):
         token = super().get_validated_token(raw_token)
         if is_blacklisted(token["jti"]):
-            raise InvalidToken("Token logout ho chuka hai. Dobara login karo.")
+            raise InvalidToken("token has been logged out , Login again")
         return token
 
 
-# Swagger ko batata hai ki ye bhi Bearer token wala login hai (Authorize button ke liye)
 class RedisJWTScheme(SimpleJWTScheme):
     target_class = RedisJWTAuthentication
     name = "jwtAuth"
